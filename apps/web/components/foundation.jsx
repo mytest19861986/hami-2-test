@@ -28,3 +28,15 @@ export function DegradedState({ retryAfterMs, children = 'خدمت موقتاً 
 export function VisuallyHidden({ children }) {
   return <span className="ui-visually-hidden">{children}</span>;
 }
+
+export function PageHeader({ eyebrow, title, description, actions }) {
+  return <div className="page-header"><div>{eyebrow && <p className="page-eyebrow">{eyebrow}</p>}<h1>{title}</h1>{description && <p className="page-description">{description}</p>}</div>{actions && <div className="page-header-actions">{actions}</div>}</div>;
+}
+
+export function MetricCard({ label, value, hint, tone = 'default' }) {
+  return <section className={`metric-card metric-card--${tone}`}><p className="metric-label">{label}</p><p className="metric-value">{value}</p>{hint && <p className="metric-hint">{hint}</p>}</section>;
+}
+
+export function StatusBadge({ children, tone = 'neutral' }) {
+  return <span className={`status-badge status-badge--${tone}`}>{children}</span>;
+}

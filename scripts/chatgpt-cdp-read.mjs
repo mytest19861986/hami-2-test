@@ -1,6 +1,6 @@
 const args = process.argv.slice(2); const host = args.find((a) => a.startsWith('--host='))?.slice(7) ?? 'chatgpt'; const matcher = args.find((a) => a.startsWith('--url='))?.slice(6) ?? '6ab836fa-6db4-83eb-a0a2-c785614dd3bf';
 const targets = await (await fetch('http://127.0.0.1:9222/json/list')).json();
-const pattern = host === 'qwen' ? /chat\.qwen\.ai/i : host === 'gemini' ? /gemini\.google\.com/i : /chatgpt\.com|chat\.openai\.com/i;
+const pattern = host === 'qwen' ? /chat\.qwen\.ai/i : host === 'gemini' ? /gemini\.google\.com/i : host === 'glm' ? /chat\.z\.ai/i : host === 'claude' ? /claude\.ai/i : /chatgpt\.com|chat\.openai\.com/i;
 const target = targets.find((t) => t.type === 'page' && pattern.test(t.url) && t.url.includes(matcher));
 if (!target) throw new Error('target_not_found');
 const ws = new WebSocket(target.webSocketDebuggerUrl); let seq = 0; const pending = new Map();

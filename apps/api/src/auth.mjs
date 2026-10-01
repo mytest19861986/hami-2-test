@@ -19,6 +19,12 @@ function digest(value) {
 export const AUTH_COOKIE = '__Host-access';
 export const REFRESH_COOKIE = '__Host-refresh';
 export const CSRF_COOKIE = '__Host-csrf';
+const verifiedRegistrationUsers = new Map();
+function authSecret() {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret || secret.length < 32) throw new Error('AUTH_SECRET_MISSING');
+  return secret;
+}
 export function parseCookies(header = '') {
   return Object.fromEntries(String(header).split(';').map((item) => item.trim().split('='))
     .filter(([name, value]) => name && value).map(([name, ...value]) => [name, decodeURIComponent(value.join('='))]));
@@ -28,7 +34,7 @@ export function setSessionCookies(response, tokens) {
   const csrf = crypto.randomBytes(24).toString('base64url');
   response.header('Set-Cookie', [
     cookieHeader(AUTH_COOKIE, tokens.accessToken, 'HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=900'),
-    cookieHeader(REFRESH_COOKIE, `${tokens.sessionId}.${tokens.refreshToken}`, 'HttpOnly; Secure; SameSite=Strict; Path=/auth/refresh; Max-Age=2592000'),
+    cookieHeader(REFRESH_COOKIE, `${tokens.sessionId}.${tokens.refreshToken}`, 'HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth/refresh; Max-Age=2592000'),
     cookieHeader(CSRF_COOKIE, csrf, 'Secure; SameSite=Lax; Path=/; Max-Age=900'),
   ]);
   return csrf;
@@ -36,7 +42,7 @@ export function setSessionCookies(response, tokens) {
 export function clearSessionCookies(response) {
   response.header('Set-Cookie', [
     cookieHeader(AUTH_COOKIE, '', 'HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0'),
-    cookieHeader(REFRESH_COOKIE, '', 'HttpOnly; Secure; SameSite=Strict; Path=/auth/refresh; Max-Age=0'),
+    cookieHeader(REFRESH_COOKIE, '', 'HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth/refresh; Max-Age=0'),
     cookieHeader(CSRF_COOKIE, '', 'Secure; SameSite=Lax; Path=/; Max-Age=0'),
   ]);
 }
@@ -70,16 +76,40 @@ export function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
 }
 
+export function createPasswordSetupToken(userId) {
+  const payload = Buffer.from(JSON.stringify({ sub: userId, purpose: 'PASSWORD_SETUP', exp: Date.now() + 10 * 60_000 })).toString('base64url');
+  const signature = crypto.createHmac('sha256', authSecret()).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+export function readPasswordSetupToken(token) {
+  const [payload, signature] = String(token ?? '').split('.');
+  if (!payload || !signature) return null;
+  const expected = crypto.createHmac('sha256', authSecret()).update(payload).digest('base64url');
+  if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  let data;
+  try { data = JSON.parse(Buffer.from(payload, 'base64url').toString()); } catch { return null; }
+  return data.purpose === 'PASSWORD_SETUP' && data.exp > Date.now() ? data : null;
+}
+
+export function rememberVerifiedRegistration(userId) { verifiedRegistrationUsers.set(userId, Date.now() + 10 * 60_000); }
+export function consumeVerifiedRegistration(userId) {
+  const expiresAt = verifiedRegistrationUsers.get(userId);
+  if (!expiresAt || expiresAt <= Date.now()) { verifiedRegistrationUsers.delete(userId); return false; }
+  verifiedRegistrationUsers.delete(userId);
+  return true;
+}
+
 function signAccess(userId) {
   const payload = Buffer.from(JSON.stringify({ sub: userId, exp: Date.now() + 15 * 60_000 })).toString('base64url');
-  const signature = crypto.createHmac('sha256', process.env.AUTH_SECRET ?? 'TEMP_DEV_ONLY_CHANGE_BEFORE_PRODUCTION').update(payload).digest('base64url');
+  const signature = crypto.createHmac('sha256', authSecret()).update(payload).digest('base64url');
   return `${payload}.${signature}`;
 }
 
 export function readAccess(token) {
   const [payload, signature] = String(token ?? '').split('.');
   if (!payload || !signature) return null;
-  const expected = crypto.createHmac('sha256', process.env.AUTH_SECRET ?? 'TEMP_DEV_ONLY_CHANGE_BEFORE_PRODUCTION').update(payload).digest('base64url');
+  const expected = crypto.createHmac('sha256', authSecret()).update(payload).digest('base64url');
   if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
   const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
   return data.exp > Date.now() ? data : null;
@@ -113,7 +143,7 @@ export async function requestOtp(phone, purpose = 'REGISTER', { idempotencyKey =
   }
   await dispatchOtpDelivery({ prisma, deliveryId: delivery.id, provider });
   await audit(null, 'OTP_REQUESTED', 'OtpChallenge');
-  if (process.env.NODE_ENV === 'production') return {};
+  if (process.env.ALLOW_DEV_OTP_CODE !== 'true') return {};
   return { devCode: code, deliveryId: delivery.id };
 }
 
@@ -152,8 +182,9 @@ export async function createSession(userId) {
   return { accessToken: signAccess(userId), refreshToken, sessionId: session.id };
 }
 
-export async function revokeSession(sessionId) {
+export async function revokeSession(sessionId, expectedUserId = null) {
   const session = await prisma.authSession.findUnique({ where: { id: sessionId }, select: { userId: true, familyId: true } });
+  if (expectedUserId && session && session.userId !== expectedUserId) throw new Error('FORBIDDEN');
   if (session?.familyId) {
     await prisma.sessionFamily.updateMany({ where: { id: session.familyId, status: 'ACTIVE' }, data: { status: 'REVOKED', revocationReason: 'LOGOUT' } });
   } else {

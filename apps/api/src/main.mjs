@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { Body, Controller, Delete, Get, Module, Patch, Post, Put, Req, Res } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { assertOriginAndCsrf, audit, clearSessionCookies, cookieAuth, createSession, hashPassword, normalizeMobile, prisma, requestOtp, revokeSession, rotateSession, setSessionCookies, verifyOtp, verifyPassword, REFRESH_COOKIE } from './auth.mjs';
+import { assertOriginAndCsrf, audit, clearSessionCookies, cookieAuth, consumeVerifiedRegistration, createPasswordSetupToken, createSession, hashPassword, normalizeMobile, prisma, readPasswordSetupToken, rememberVerifiedRegistration, requestOtp, revokeSession, rotateSession, setSessionCookies, verifyOtp, verifyPassword, REFRESH_COOKIE } from './auth.mjs';
 import { requireUser, validateAddressInput, validateProfileInput, normalizeNationalId } from './profile.mjs';
 import { evaluateEligibility } from './eligibility.mjs';
 import { LocalRateLimitStore, enforceRateLimit } from './rate-limit.mjs';
@@ -15,6 +15,7 @@ import { createRedemptionService, publicRedemption } from './redemption-domain.m
 
 const payoutProvider = new FakePayoutProvider();
 const redemptionService = createRedemptionService(prisma);
+if (!process.env.AUTH_SECRET || process.env.AUTH_SECRET.length < 32) throw new Error('AUTH_SECRET_MISSING');
 
 const localRateLimitStore = new LocalRateLimitStore({ limit: 5, windowMs: 60_000 });
 if (process.env.NODE_ENV === 'production' && process.env.OTP_PROVIDER !== 'sms') throw new Error('Production requires OTP_PROVIDER=sms');
@@ -69,12 +70,15 @@ class AuthController {
     await audit(user.id, 'USER_REGISTERED', 'User');
     await audit(user.id, 'ROLE_ASSIGNED', 'UserRole');
     await audit(user.id, 'OTP_VERIFIED', 'User');
-    return { userId: user.id, phone: user.phone, verified: true };
+    rememberVerifiedRegistration(user.id);
+    return { userId: user.id, phone: user.phone, verified: true, passwordSetupToken: createPasswordSetupToken(user.id) };
   }
   async setPassword(body) {
     const phone = normalizeMobile(body.phone);
     const user = await prisma.user.findUnique({ where: { phone } });
-    if (!user || !user.mobileVerifiedAt) throw new Error('MOBILE_NOT_VERIFIED');
+    const setup = readPasswordSetupToken(body.passwordSetupToken);
+    const proof = user && ((setup?.sub === user.id && consumeVerifiedRegistration(user.id)) || consumeVerifiedRegistration(user.id));
+    if (!user || !user.mobileVerifiedAt || !proof || user.status !== 'PENDING') throw new Error('PASSWORD_SETUP_REQUIRED');
     const updated = await prisma.$transaction(async (tx) => {
       const next = await tx.user.update({ where: { id: user.id }, data: { passwordHash: hashPassword(body.password), status: 'ACTIVE' } });
       await tx.sessionFamily.updateMany({ where: { userId: user.id, status: 'ACTIVE' }, data: { status: 'REVOKED', revocationReason: 'PASSWORD_CHANGED' } });
@@ -140,7 +144,7 @@ class AuthController {
     if (!session || session.user.status !== 'ACTIVE') throw new Error('REFRESH_INVALID');
     const tokens = await rotateSession(sessionId, refreshToken); setSessionCookies(res, tokens); return req.headers['x-auth-mode'] === 'cookie' ? { authenticated: true } : tokens;
   }
-  async logout(body, req, res) { assertOriginAndCsrf(req); const { auth } = cookieAuth(req); if (body.sessionId) await revokeSession(body.sessionId); else if (auth?.sub) await prisma.sessionFamily.updateMany({ where: { userId: auth.sub, status: 'ACTIVE' }, data: { status: 'REVOKED', revocationReason: 'LOGOUT' } }); clearSessionCookies(res); return { revoked: true }; }
+  async logout(body, req, res) { assertOriginAndCsrf(req); const { auth } = cookieAuth(req); if (!auth) throw new Error('UNAUTHORIZED'); if (body.sessionId) await revokeSession(body.sessionId, auth.sub); else await prisma.sessionFamily.updateMany({ where: { userId: auth.sub, status: 'ACTIVE' }, data: { status: 'REVOKED', revocationReason: 'LOGOUT' } }); clearSessionCookies(res); return { revoked: true }; }
   async getProfile(req) {
     const user = await requireUser(req);
     return prisma.userProfile.findUnique({ where: { userId: user.id } });
@@ -1044,7 +1048,7 @@ app.setGlobalPrefix('api/v1');
 app.useGlobalFilters({ catch(exception, host) {
   const response = host.switchToHttp().getResponse();
   const code = exception?.message ?? 'INTERNAL_ERROR';
-  const status = exception?.code === 'P2002' || code === 'P2002' ? 409 : code === 'RATE_LIMITED' ? 429 : ['UNAUTHORIZED', 'AUTH_FAILED', 'OTP_INVALID', 'REFRESH_INVALID', 'MOBILE_NOT_VERIFIED'].includes(code) ? 401 : ['FORBIDDEN', 'CSRF_REJECTED', 'AUTH_CONFLICT'].includes(code) ? 403 : ['INVALID_MOBILE', 'INVALID_PROFILE', 'INVALID_NATIONAL_ID', 'INVALID_ADDRESS', 'INVALID_STATUS', 'INVALID_PROVIDER', 'INVALID_PROVIDER_STATUS', 'INVALID_PROVIDER_TRANSITION', 'INVALID_MEDICAL_COUNCIL_NUMBER', 'PROVIDER_NOT_EDITABLE', 'PAYMENT_NOT_CONFIRMABLE', 'REFUND_NOT_ALLOWED', 'INVALID_PLAN', 'INVALID_DISCOUNT', 'INVALID_STATE_TRANSITION', 'INVALID_REDEMPTION_TRANSITION', 'IDEMPOTENCY_KEY_REQUIRED', 'REDEMPTION_TOKEN_REQUIRED', 'REDEMPTION_NOT_ELIGIBLE', 'REDEMPTION_NOT_CONFIRMABLE', 'REDEMPTION_NOT_CANCELLABLE', 'REDEMPTION_TOKEN_INVALID', 'REDEMPTION_EXPIRED', 'REVERSAL_REASON_REQUIRED', 'INSUFFICIENT_BALANCE', 'INVALID_WITHDRAWAL_AMOUNT', 'INVALID_FINANCIAL_AMOUNT', 'WITHDRAWAL_NOT_ALLOWED', 'WITHDRAWAL_NOT_ACTIONABLE'].includes(code) ? 400 : ['ADDRESS_NOT_FOUND', 'USER_NOT_FOUND', 'PROVINCE_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PLAN_NOT_FOUND', 'PURCHASE_NOT_FOUND', 'REDEMPTION_NOT_FOUND', 'PLAN_OR_PROVIDER_NOT_FOUND', 'WITHDRAWAL_NOT_FOUND'].includes(code) ? 404 : ['IDEMPOTENCY_CONFLICT', 'REDEMPTION_CONFIRMATION_RACE', 'REDEMPTION_CANCEL_RACE', 'REDEMPTION_REVERSAL_RACE'].includes(code) ? 409 : 500;
+  const status = exception?.code === 'P2002' || code === 'P2002' ? 409 : code === 'RATE_LIMITED' ? 429 : ['UNAUTHORIZED', 'AUTH_FAILED', 'OTP_INVALID', 'REFRESH_INVALID', 'MOBILE_NOT_VERIFIED', 'PASSWORD_SETUP_REQUIRED'].includes(code) ? 401 : ['FORBIDDEN', 'CSRF_REJECTED', 'AUTH_CONFLICT'].includes(code) ? 403 : ['INVALID_MOBILE', 'INVALID_PROFILE', 'INVALID_NATIONAL_ID', 'INVALID_ADDRESS', 'INVALID_STATUS', 'INVALID_PROVIDER', 'INVALID_PROVIDER_STATUS', 'INVALID_PROVIDER_TRANSITION', 'INVALID_MEDICAL_COUNCIL_NUMBER', 'PROVIDER_NOT_EDITABLE', 'PAYMENT_NOT_CONFIRMABLE', 'REFUND_NOT_ALLOWED', 'INVALID_PLAN', 'INVALID_DISCOUNT', 'INVALID_STATE_TRANSITION', 'INVALID_REDEMPTION_TRANSITION', 'IDEMPOTENCY_KEY_REQUIRED', 'REDEMPTION_TOKEN_REQUIRED', 'REDEMPTION_NOT_ELIGIBLE', 'REDEMPTION_NOT_CONFIRMABLE', 'REDEMPTION_NOT_CANCELLABLE', 'REDEMPTION_TOKEN_INVALID', 'REDEMPTION_EXPIRED', 'REVERSAL_REASON_REQUIRED', 'INSUFFICIENT_BALANCE', 'INVALID_WITHDRAWAL_AMOUNT', 'INVALID_FINANCIAL_AMOUNT', 'WITHDRAWAL_NOT_ALLOWED', 'WITHDRAWAL_NOT_ACTIONABLE'].includes(code) ? 400 : ['ADDRESS_NOT_FOUND', 'USER_NOT_FOUND', 'PROVINCE_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PLAN_NOT_FOUND', 'PURCHASE_NOT_FOUND', 'REDEMPTION_NOT_FOUND', 'PLAN_OR_PROVIDER_NOT_FOUND', 'WITHDRAWAL_NOT_FOUND'].includes(code) ? 404 : ['IDEMPOTENCY_CONFLICT', 'REDEMPTION_CONFIRMATION_RACE', 'REDEMPTION_CANCEL_RACE', 'REDEMPTION_REVERSAL_RACE'].includes(code) ? 409 : 500;
   const safeStatus = ['P2034', 'P2028', 'P40001'].includes(exception?.code) || ['WITHDRAWAL_CONFLICT', 'REFUND_WALLET_FUNDS_UNAVAILABLE', 'COMMISSION_CURRENCY_CONTEXT_REQUIRED'].includes(code) ? 409 : status;
   response.status(safeStatus).json({ error: safeStatus === 500 ? 'INTERNAL_ERROR' : code });
 } });

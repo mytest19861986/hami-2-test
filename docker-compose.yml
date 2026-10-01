@@ -18,6 +18,8 @@ services:
       dockerfile: apps/api/Dockerfile
     environment:
       PORT: 4000
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set to a non-public local/test secret}
+      ALLOW_DEV_OTP_CODE: ${ALLOW_DEV_OTP_CODE:-false}
       AUDIT_AUTHORIZATION_EVENT_MODE: CANONICAL
       DATABASE_URL: postgresql://${POSTGRES_USER:-hamayat}:${POSTGRES_PASSWORD:-change-me-local-only}@db:5432/${POSTGRES_DB:-hamayat_card}
     depends_on:

@@ -6,7 +6,7 @@ import { purgeSessionFamilyData } from '../src/auth.mjs';
 const prisma = new PrismaClient();
 
 const base = 'http://127.0.0.1:4000/api/v1';
-const phone = '09120000001';
+const phone = `0912${String(Math.floor(Math.random() * 10000000)).padStart(7, '0')}`;
 
 async function registerAndLogin(testPhone) {
   const request = await fetch(`${base}/auth/register/request-otp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: testPhone }) });
@@ -46,7 +46,7 @@ test('registration OTP, password login, session and me flow', async () => {
 
   const me = await fetch(`${base}/auth/me`, { headers: { authorization: `Bearer ${tokens.accessToken}` } });
   assert.equal(me.status, 200);
-  assert.equal((await me.json()).phone, '+989120000001');
+  assert.equal((await me.json()).phone, `+98${phone.slice(1)}`);
 
   const unauthAdmin = await fetch(`${base}/admin/users`);
   assert.equal(unauthAdmin.status, 401);
@@ -54,8 +54,14 @@ test('registration OTP, password login, session and me flow', async () => {
   const forbiddenAdmin = await fetch(`${base}/admin/users`, { headers: { authorization: `Bearer ${noPermissionTokens.accessToken}` } });
   assert.equal(forbiddenAdmin.status, 403);
 
-  const logout = await fetch(`${base}/auth/logout`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: tokens.sessionId }) });
+  const logout = await fetch(`${base}/auth/logout`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tokens.accessToken}` }, body: JSON.stringify({ sessionId: tokens.sessionId }) });
   assert.equal(logout.status, 201);
+});
+
+test('password setup is rejected without a verified registration proof', async () => {
+  const target = '09120000991';
+  const response = await fetch(`${base}/auth/register/set-password`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: target, password: 'Attacker-Password-2026!' }) });
+  assert.equal(response.status, 401);
 });
 
 test('wrong OTP is rejected and cannot be reused', async () => {
@@ -255,7 +261,7 @@ test('authenticated profile and address lifecycle', async () => {
 test('admin user summary, detail and status permissions', async () => {
   const login = await fetch(`${base}/auth/login/password`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone, password: 'TEMP-Dev-Password-2026!' }) });
   const tokens = await login.json();
-  const user = await prisma.user.findUnique({ where: { phone: '+989120000001' } });
+  const user = await prisma.user.findUnique({ where: { phone: `+98${phone.slice(1)}` } });
   const role = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } });
   await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: role.id } }, update: {}, create: { userId: user.id, roleId: role.id } });
   const headers = { authorization: `Bearer ${tokens.accessToken}` };
