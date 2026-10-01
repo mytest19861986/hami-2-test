@@ -11,8 +11,10 @@ import { FakePayoutProvider, classifyDiscrepancy, isDefinitiveNotPaid, snapshots
 import { emitAuthorizationDecision } from './authorization-audit-emitter.mjs';
 import { auditModeDecision, modeDedupKey } from './authorization-audit-mode.mjs';
 import { assertComplianceActor, complianceProjection } from './compliance-access.mjs';
+import { createRedemptionService, publicRedemption } from './redemption-domain.mjs';
 
 const payoutProvider = new FakePayoutProvider();
+const redemptionService = createRedemptionService(prisma);
 
 const localRateLimitStore = new LocalRateLimitStore({ limit: 5, windowMs: 60_000 });
 if (process.env.NODE_ENV === 'production' && process.env.OTP_PROVIDER !== 'sms') throw new Error('Production requires OTP_PROVIDER=sms');
@@ -417,6 +419,31 @@ class BenefitController {
     return { eligible: result.eligible, providerStatus: provider.status, membershipStatus: memberships.find((membership) => membership.status === 'ACTIVE')?.status ?? null, benefits: result.benefits };
   }
 }
+
+class RedemptionController {
+  async initiate(body, req) {
+    const actor = await requireUser(req);
+    const key = req.headers['idempotency-key'] ?? body?.idempotencyKey;
+    const result = await redemptionService.initiate({ customerUserId: actor.id, providerId: body?.providerId, benefitMembershipId: body?.benefitMembershipId, idempotencyKey: key });
+    await audit(actor.id, 'REDEMPTION_INITIATED', 'Redemption');
+    return { id: result.redemption.id, status: result.redemption.status, providerId: result.redemption.providerId, token: result.rawToken, tokenExpiresAt: result.redemption.tokenExpiresAt, replay: result.replay };
+  }
+  async get(req) { const actor = await requireUser(req); return redemptionService.get(req.params.id, { id: actor.id }); }
+  async mine(req) { const actor = await requireUser(req); return (await prisma.redemption.findMany({ where: { customerUserId: actor.id }, orderBy: { createdAt: 'desc' } })).map(publicRedemption); }
+  async cancel(req) { const actor = await requireUser(req); const row = await redemptionService.cancel({ id: req.params.id, customerUserId: actor.id }); await audit(actor.id, 'REDEMPTION_CANCELLED', 'Redemption'); return publicRedemption(row); }
+  async confirm(body, req) { const actor = await requireUser(req); const result = await redemptionService.confirm({ providerUserId: actor.id, token: body?.token }); if (!result.replay) await audit(actor.id, 'REDEMPTION_CONFIRMED', 'Redemption'); return result.redemption; }
+  async providerMine(req) { const actor = await requireUser(req); const membership = await prisma.providerMembership.findFirst({ where: { userId: actor.id, role: { in: ['OWNER', 'MANAGER', 'STAFF'] } } }); if (!membership) throw new Error('FORBIDDEN'); return (await prisma.redemption.findMany({ where: { providerId: membership.providerId }, orderBy: { createdAt: 'desc' } })).map(publicRedemption); }
+  async reverse(body, req) { const actor = await new AuthController().currentWithPermission(req, 'redemptions.reverse'); const row = await redemptionService.reverse({ id: req.params.id, actorId: actor.id, reason: body?.reason }); return publicRedemption(row); }
+}
+
+Post('redemptions')(RedemptionController.prototype, 'initiate', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'initiate')); Body()(RedemptionController.prototype, 'initiate', 0); Req()(RedemptionController.prototype, 'initiate', 1);
+Get('redemptions/:id')(RedemptionController.prototype, 'get', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'get')); Req()(RedemptionController.prototype, 'get', 0);
+Get('users/me/redemptions')(RedemptionController.prototype, 'mine', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'mine')); Req()(RedemptionController.prototype, 'mine', 0);
+Post('redemptions/:id/cancel')(RedemptionController.prototype, 'cancel', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'cancel')); Req()(RedemptionController.prototype, 'cancel', 0);
+Post('providers/me/redemptions/confirm')(RedemptionController.prototype, 'confirm', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'confirm')); Body()(RedemptionController.prototype, 'confirm', 0); Req()(RedemptionController.prototype, 'confirm', 1);
+Get('providers/me/redemptions')(RedemptionController.prototype, 'providerMine', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'providerMine')); Req()(RedemptionController.prototype, 'providerMine', 0);
+Post('admin/redemptions/:id/reverse')(RedemptionController.prototype, 'reverse', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'reverse')); Body()(RedemptionController.prototype, 'reverse', 0); Req()(RedemptionController.prototype, 'reverse', 1);
+Controller()(RedemptionController);
 
 class RewardsController {
   async referral(req) {
@@ -938,11 +965,11 @@ Req()(AuthController.prototype, 'setDefaultAddress', 1);
 Controller()(AuthController);
 
 class AppModule {}
-Module({ controllers: [HealthController, LocationController, AuthController, ProviderController, BenefitController, RewardsController, CommercialAdminController, SalesCommissionController, WithdrawalAdminController, ComplianceController, DashboardController] })(AppModule);
+Module({ controllers: [HealthController, LocationController, AuthController, ProviderController, BenefitController, RedemptionController, RewardsController, CommercialAdminController, SalesCommissionController, WithdrawalAdminController, ComplianceController, DashboardController] })(AppModule);
 
 async function seedRbac() {
   const roles = ['SUPER_ADMIN', 'ADMIN', 'SUPPORT', 'COMPLIANCE_AUDITOR', 'SALES_PARTNER', 'USER'];
-  const permissions = [['users', 'read'], ['users', 'create'], ['users', 'update'], ['users', 'disable'], ['providers', 'read'], ['providers', 'create'], ['providers', 'update'], ['providers', 'approve'], ['providers', 'suspend'], ['specialties', 'read'], ['specialties', 'manage'], ['roles', 'read'], ['roles', 'manage'], ['permissions', 'read'], ['permissions', 'manage'], ['audit', 'read'], ['compliance', 'audit_read'], ['plans', 'read'], ['plans', 'create'], ['plans', 'update'], ['plans', 'manage_providers'], ['purchases', 'read'], ['purchases', 'confirm_payment'], ['purchases', 'refund'], ['memberships', 'read'], ['eligibility', 'check'], ['commercial_settings', 'read'], ['commercial_settings', 'manage'], ['withdrawals', 'read'], ['withdrawals', 'approve'], ['withdrawals', 'reject'], ['withdrawals', 'mark_paid'], ['commissions', 'read'], ['commissions', 'summary_read'], ['commissions', 'approve'], ['commissions', 'reject'], ['sales_attributions', 'read'], ['sales_attributions', 'create'], ['sales_attributions', 'manage']];
+  const permissions = [['users', 'read'], ['users', 'create'], ['users', 'update'], ['users', 'disable'], ['providers', 'read'], ['providers', 'create'], ['providers', 'update'], ['providers', 'approve'], ['providers', 'suspend'], ['specialties', 'read'], ['specialties', 'manage'], ['roles', 'read'], ['roles', 'manage'], ['permissions', 'read'], ['permissions', 'manage'], ['audit', 'read'], ['compliance', 'audit_read'], ['plans', 'read'], ['plans', 'create'], ['plans', 'update'], ['plans', 'manage_providers'], ['purchases', 'read'], ['purchases', 'confirm_payment'], ['purchases', 'refund'], ['memberships', 'read'], ['eligibility', 'check'], ['redemptions', 'reverse'], ['commercial_settings', 'read'], ['commercial_settings', 'manage'], ['withdrawals', 'read'], ['withdrawals', 'approve'], ['withdrawals', 'reject'], ['withdrawals', 'mark_paid'], ['commissions', 'read'], ['commissions', 'summary_read'], ['commissions', 'approve'], ['commissions', 'reject'], ['sales_attributions', 'read'], ['sales_attributions', 'create'], ['sales_attributions', 'manage']];
   for (const name of roles) await prisma.role.upsert({ where: { name }, update: {}, create: { name } });
   for (const [resource, action] of permissions) await prisma.permission.upsert({ where: { resource_action: { resource, action } }, update: {}, create: { resource, action } });
   const admin = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } });
@@ -1017,7 +1044,7 @@ app.setGlobalPrefix('api/v1');
 app.useGlobalFilters({ catch(exception, host) {
   const response = host.switchToHttp().getResponse();
   const code = exception?.message ?? 'INTERNAL_ERROR';
-  const status = exception?.code === 'P2002' || code === 'P2002' ? 409 : code === 'RATE_LIMITED' ? 429 : ['UNAUTHORIZED', 'AUTH_FAILED', 'OTP_INVALID', 'REFRESH_INVALID', 'MOBILE_NOT_VERIFIED'].includes(code) ? 401 : ['FORBIDDEN', 'CSRF_REJECTED', 'AUTH_CONFLICT'].includes(code) ? 403 : ['INVALID_MOBILE', 'INVALID_PROFILE', 'INVALID_NATIONAL_ID', 'INVALID_ADDRESS', 'INVALID_STATUS', 'INVALID_PROVIDER', 'INVALID_PROVIDER_STATUS', 'INVALID_PROVIDER_TRANSITION', 'INVALID_MEDICAL_COUNCIL_NUMBER', 'PROVIDER_NOT_EDITABLE', 'PAYMENT_NOT_CONFIRMABLE', 'REFUND_NOT_ALLOWED', 'INVALID_PLAN', 'INVALID_DISCOUNT', 'INVALID_STATE_TRANSITION', 'INSUFFICIENT_BALANCE', 'INVALID_WITHDRAWAL_AMOUNT', 'INVALID_FINANCIAL_AMOUNT', 'WITHDRAWAL_NOT_ALLOWED', 'WITHDRAWAL_NOT_ACTIONABLE'].includes(code) ? 400 : ['ADDRESS_NOT_FOUND', 'USER_NOT_FOUND', 'PROVINCE_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PLAN_NOT_FOUND', 'PURCHASE_NOT_FOUND', 'PLAN_OR_PROVIDER_NOT_FOUND', 'WITHDRAWAL_NOT_FOUND'].includes(code) ? 404 : 500;
+  const status = exception?.code === 'P2002' || code === 'P2002' ? 409 : code === 'RATE_LIMITED' ? 429 : ['UNAUTHORIZED', 'AUTH_FAILED', 'OTP_INVALID', 'REFRESH_INVALID', 'MOBILE_NOT_VERIFIED'].includes(code) ? 401 : ['FORBIDDEN', 'CSRF_REJECTED', 'AUTH_CONFLICT'].includes(code) ? 403 : ['INVALID_MOBILE', 'INVALID_PROFILE', 'INVALID_NATIONAL_ID', 'INVALID_ADDRESS', 'INVALID_STATUS', 'INVALID_PROVIDER', 'INVALID_PROVIDER_STATUS', 'INVALID_PROVIDER_TRANSITION', 'INVALID_MEDICAL_COUNCIL_NUMBER', 'PROVIDER_NOT_EDITABLE', 'PAYMENT_NOT_CONFIRMABLE', 'REFUND_NOT_ALLOWED', 'INVALID_PLAN', 'INVALID_DISCOUNT', 'INVALID_STATE_TRANSITION', 'INVALID_REDEMPTION_TRANSITION', 'IDEMPOTENCY_KEY_REQUIRED', 'REDEMPTION_TOKEN_REQUIRED', 'REDEMPTION_NOT_ELIGIBLE', 'REDEMPTION_NOT_CONFIRMABLE', 'REDEMPTION_NOT_CANCELLABLE', 'REDEMPTION_TOKEN_INVALID', 'REDEMPTION_EXPIRED', 'REVERSAL_REASON_REQUIRED', 'INSUFFICIENT_BALANCE', 'INVALID_WITHDRAWAL_AMOUNT', 'INVALID_FINANCIAL_AMOUNT', 'WITHDRAWAL_NOT_ALLOWED', 'WITHDRAWAL_NOT_ACTIONABLE'].includes(code) ? 400 : ['ADDRESS_NOT_FOUND', 'USER_NOT_FOUND', 'PROVINCE_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PLAN_NOT_FOUND', 'PURCHASE_NOT_FOUND', 'REDEMPTION_NOT_FOUND', 'PLAN_OR_PROVIDER_NOT_FOUND', 'WITHDRAWAL_NOT_FOUND'].includes(code) ? 404 : ['IDEMPOTENCY_CONFLICT', 'REDEMPTION_CONFIRMATION_RACE', 'REDEMPTION_CANCEL_RACE', 'REDEMPTION_REVERSAL_RACE'].includes(code) ? 409 : 500;
   const safeStatus = ['P2034', 'P2028', 'P40001'].includes(exception?.code) || ['WITHDRAWAL_CONFLICT', 'REFUND_WALLET_FUNDS_UNAVAILABLE', 'COMMISSION_CURRENCY_CONTEXT_REQUIRED'].includes(code) ? 409 : status;
   response.status(safeStatus).json({ error: safeStatus === 500 ? 'INTERNAL_ERROR' : code });
 } });

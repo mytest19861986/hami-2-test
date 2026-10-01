@@ -7,5 +7,5 @@ const ws = new WebSocket(target.webSocketDebuggerUrl); let seq = 0; const pendin
 ws.addEventListener('message', (e) => { const d = JSON.parse(e.data); if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); } });
 const call = (method, params = {}) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, (d) => d.error ? reject(new Error(d.error.message)) : resolve(d.result)); ws.send(JSON.stringify({id, method, params})); });
 await new Promise((resolve, reject) => { ws.addEventListener('open', resolve, {once:true}); ws.addEventListener('error', reject, {once:true}); });
-const r = await call('Runtime.evaluate', {expression:`(() => ({url:location.href,readyState:document.readyState,text:document.body.innerText.slice(-12000)}))()`,returnByValue:true});
+const r = await call('Runtime.evaluate', {expression:`(() => { const b=document.body.innerText; const i=b.lastIndexOf('ChatGPT said:'); return {url:location.href,readyState:document.readyState,text:(i>=0?b.slice(i):b.slice(-12000))}; })()`,returnByValue:true});
 console.log(JSON.stringify(r.result.value, null, 2)); ws.close();
