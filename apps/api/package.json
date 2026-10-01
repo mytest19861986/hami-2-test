@@ -1,0 +1,1 @@
+{"name":"@hamayat/api","private":true,"type":"module","scripts":{"start":"node src/main.mjs","start:prod":"node src/main.mjs","build":"tsc --project tsconfig.json --noEmit false --outDir dist","lint":"eslint src test --max-warnings=0","typecheck":"tsc --project tsconfig.json --noEmit","test":"node --test test/*.test.mjs"}}

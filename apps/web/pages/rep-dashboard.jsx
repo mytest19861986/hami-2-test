@@ -1,0 +1,13 @@
+import { useEffect, useState } from 'react';
+import { UserShell } from '../components/user-shell';
+import { Card, ErrorState, LoadingState, Stack } from '../components/foundation';
+import { createApiClient } from '../lib/api-client';
+import { readSession } from '../lib/session';
+import { formatMoney, labelStatus } from '../lib/presentation';
+
+export default function RepresentativeDashboard() {
+  const [data, setData] = useState(null); const [error, setError] = useState(null); const [period, setPeriod] = useState('all');
+  async function load(nextPeriod = period) { setError(null); setData(null); try { const value = await createApiClient({ getSession: readSession }).get(`/rep/dashboard/summary?period=${nextPeriod}`); setData(value.representative); } catch (reason) { setError(reason); } }
+  useEffect(() => { load(); }, []);
+  return <UserShell title="مرکز کار همکار فروش"><Stack>{!data && !error && <LoadingState />}{error && <ErrorState title={error.status === 403 ? 'دسترسی به این بخش مجاز نیست.' : 'اطلاعات همکار فروش قابل دریافت نیست.'} onRetry={() => load()} />}{data && <><nav aria-label="فیلتر بازه زمانی"><button type="button" onClick={() => { setPeriod('7d'); load('7d'); }}>۷ روز</button> <button type="button" onClick={() => { setPeriod('30d'); load('30d'); }}>۳۰ روز</button> <button type="button" onClick={() => { setPeriod('all'); load('all'); }}>همه</button></nav><div className="dashboard-grid"><Card title="مشتریان منتسب"><p className="dashboard-balance">{data.attributed_customer_count}</p><p>جدید در بازه: {data.new_attributed_customer_count}</p><a href="/attributed-customers">مشاهده مشتریان</a></Card><Card title="کمیسیون قابل پرداخت"><p dir="ltr">{formatMoney(data.commission_summary.available.amount_minor, data.commission_summary.available.currency_code)}</p><a href="/commission-overview">جزئیات کمیسیون</a></Card><Card title="کمیسیون در انتظار"><p dir="ltr">{formatMoney(data.commission_summary.pending.amount_minor, data.commission_summary.pending.currency_code)}</p></Card><Card title="آمادگی برداشت"><p dir="ltr">{formatMoney(data.withdrawal_readiness.available_balance.amount_minor, data.withdrawal_readiness.available_balance.currency_code)}</p><p>درخواست‌های باز: {data.withdrawal_readiness.pending_requests.length}</p><a href="/wallet">ورود به کیف پول</a></Card></div><Card title="فعالیت اخیر"><ul className="card-list">{!data.recent_attributable_activity.length && <li>فعالیتی در این بازه ثبت نشده است.</li>}{data.recent_attributable_activity.map((item, index) => <li key={`${item.createdAt}-${index}`}>{item.type === 'COMMISSION' ? 'کمیسیون' : 'انتساب مشتری'}: {labelStatus(item.status)} — {new Date(item.createdAt).toLocaleDateString('fa-IR')}</li>)}</ul></Card></>}</Stack></UserShell>;
+}

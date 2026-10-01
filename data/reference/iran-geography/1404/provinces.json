@@ -1,0 +1,157 @@
+[
+  {
+    "sourceCode": "00",
+    "name": "مرکزی",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "01",
+    "name": "گیلان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "02",
+    "name": "مازندران",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "03",
+    "name": "آذربایجان شرقی",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "04",
+    "name": "آذربایجان غربی",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "05",
+    "name": "کرمانشاه",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "06",
+    "name": "خوزستان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "07",
+    "name": "فارس",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "08",
+    "name": "کرمان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "09",
+    "name": "خراسان رضوی",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "10",
+    "name": "اصفهان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "11",
+    "name": "سیستان و بلوچستان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "12",
+    "name": "کردستان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "13",
+    "name": "همدان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "14",
+    "name": "چهارمحال و بختیاری",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "15",
+    "name": "لرستان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "16",
+    "name": "ایلام",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "17",
+    "name": "کهگیلویه و بویراحمد",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "18",
+    "name": "بوشهر",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "19",
+    "name": "زنجان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "20",
+    "name": "سمنان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "21",
+    "name": "یزد",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "22",
+    "name": "هرمزگان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "23",
+    "name": "تهران",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "24",
+    "name": "اردبیل",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "25",
+    "name": "قم",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "26",
+    "name": "قزوین",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "27",
+    "name": "گلستان",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "28",
+    "name": "خراسان شمالی",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "29",
+    "name": "خراسان جنوبی",
+    "sourceVersion": "SCI-1404"
+  },
+  {
+    "sourceCode": "30",
+    "name": "البرز",
+    "sourceVersion": "SCI-1404"
+  }
+]

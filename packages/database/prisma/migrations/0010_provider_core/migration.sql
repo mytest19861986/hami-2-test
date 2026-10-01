@@ -1,0 +1,12 @@
+CREATE TYPE "ProviderType" AS ENUM ('DOCTOR');
+CREATE TYPE "ProviderStatus" AS ENUM ('DRAFT','PENDING_REVIEW','APPROVED','REJECTED','SUSPENDED');
+CREATE TYPE "ProviderMemberRole" AS ENUM ('OWNER','MANAGER','STAFF');
+CREATE TABLE "Provider" ("id" TEXT NOT NULL, "type" "ProviderType" NOT NULL, "status" "ProviderStatus" NOT NULL DEFAULT 'DRAFT', "displayName" TEXT NOT NULL, "provinceId" TEXT NOT NULL, "cityId" TEXT NOT NULL, "address" TEXT NOT NULL, "phone" TEXT NOT NULL, "imageUrl" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "Provider_pkey" PRIMARY KEY ("id"), CONSTRAINT "Provider_provinceId_fkey" FOREIGN KEY ("provinceId") REFERENCES "Province"("id"), CONSTRAINT "Provider_cityId_fkey" FOREIGN KEY ("cityId") REFERENCES "City"("id"));
+CREATE TABLE "MedicalSpecialty" ("id" TEXT NOT NULL, "name" TEXT NOT NULL, CONSTRAINT "MedicalSpecialty_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "DoctorProfile" ("id" TEXT NOT NULL, "providerId" TEXT NOT NULL, "medicalCouncilNumber" TEXT NOT NULL, "specialtyId" TEXT NOT NULL, CONSTRAINT "DoctorProfile_pkey" PRIMARY KEY ("id"), CONSTRAINT "DoctorProfile_providerId_fkey" FOREIGN KEY ("providerId") REFERENCES "Provider"("id"), CONSTRAINT "DoctorProfile_specialtyId_fkey" FOREIGN KEY ("specialtyId") REFERENCES "MedicalSpecialty"("id"));
+CREATE TABLE "ProviderMembership" ("providerId" TEXT NOT NULL, "userId" TEXT NOT NULL, "role" "ProviderMemberRole" NOT NULL DEFAULT 'OWNER', CONSTRAINT "ProviderMembership_pkey" PRIMARY KEY ("providerId","userId"), CONSTRAINT "ProviderMembership_providerId_fkey" FOREIGN KEY ("providerId") REFERENCES "Provider"("id"), CONSTRAINT "ProviderMembership_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id"));
+CREATE UNIQUE INDEX "MedicalSpecialty_name_key" ON "MedicalSpecialty"("name");
+CREATE UNIQUE INDEX "DoctorProfile_providerId_key" ON "DoctorProfile"("providerId");
+CREATE UNIQUE INDEX "DoctorProfile_medicalCouncilNumber_key" ON "DoctorProfile"("medicalCouncilNumber");
+CREATE INDEX "Provider_status_type_provinceId_cityId_idx" ON "Provider"("status","type","provinceId","cityId");
+CREATE INDEX "ProviderMembership_userId_idx" ON "ProviderMembership"("userId");

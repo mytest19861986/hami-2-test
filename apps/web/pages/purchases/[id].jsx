@@ -1,0 +1,15 @@
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
+import { UserShell } from '../../components/user-shell';
+import { DegradedState, EmptyState, ErrorState, LoadingState } from '../../components/foundation';
+import { createApiClient } from '../../lib/api-client';
+import { readSession } from '../../lib/session';
+import { formatMoney, labelStatus } from '../../lib/presentation';
+
+const resultText = { PENDING_PAYMENT: 'پرداخت در انتظار تأیید backend است؛ این صفحه وضعیت را تغییر نمی‌دهد.', PAID: 'پرداخت توسط backend تأیید شده است.', REFUNDED: 'وضعیت بازپرداخت توسط backend ثبت شده است.', PAYMENT_UNKNOWN: 'وضعیت پرداخت هنوز مشخص نیست؛ اقدامی از این صفحه انجام نمی‌شود.', UNKNOWN: 'وضعیت پرداخت هنوز مشخص نیست؛ اقدامی از این صفحه انجام نمی‌شود.' };
+
+export default function PurchaseDetail() {
+  const router = useRouter(); const [item, setItem] = useState(null); const [state, setState] = useState('loading'); const [retry, setRetry] = useState(0);
+  useEffect(() => { if (!router.isReady) return; let active = true; const api = createApiClient({ getSession: readSession }); setState('loading'); api.get('/users/me/purchases').then((rows) => { const row = rows.find((entry) => entry.id === router.query.id); if (!row) throw Object.assign(new Error('PURCHASE_NOT_FOUND'), { status: 404 }); if (active) { setItem(row); setState('success'); } }).catch((error) => { if (active) setState(error?.status === 429 || error?.status === 503 || error?.status === 0 ? 'degraded' : error?.status === 404 ? 'empty' : 'error'); }); return () => { active = false; }; }, [router.isReady, router.query.id, retry]);
+  return <UserShell title="نتیجه پرداخت"><section className="stack" aria-labelledby="payment-result-heading"><h2 id="payment-result-heading">نتیجه پرداخت</h2>{state === 'loading' && <LoadingState />}{state === 'degraded' && <><DegradedState>سرویس موقتاً محدود است؛ نتیجه جدیدی اعلام نمی‌شود.</DegradedState><button type="button" onClick={() => setRetry((value) => value + 1)}>تلاش دوباره</button></>}{state === 'error' && <ErrorState title="نتیجه پرداخت قابل دریافت نیست." onRetry={() => setRetry((value) => value + 1)} />}{state === 'empty' && <EmptyState title="این خرید پیدا نشد." />}{state === 'success' && item && <article className="card"><h3>خرید {item.id}</h3><p>مبلغ ثبت‌شده: {formatMoney(item.amountSnapshot, item.currencySnapshot)}</p><p>اعتبار ثبت‌شده: {item.validityDaysSnapshot} روز</p><p>وضعیت backend: {labelStatus(item.status)}</p><p role="status">{resultText[item.status] || 'وضعیت از backend دریافت شد؛ این صفحه فقط نمایش‌دهنده است.'}</p><button type="button" onClick={() => setRetry((value) => value + 1)}>بازخوانی وضعیت</button></article>}</section></UserShell>;
+}

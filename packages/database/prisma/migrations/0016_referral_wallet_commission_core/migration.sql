@@ -1,0 +1,48 @@
+CREATE TYPE "ReferralAttributionStatus" AS ENUM ('ATTRIBUTED', 'QUALIFIED', 'REWARDED', 'REVERSED');
+CREATE TYPE "WalletTransactionType" AS ENUM ('REFERRAL_REWARD', 'REFERRAL_REVERSAL', 'WITHDRAWAL_RESERVATION', 'WITHDRAWAL_RELEASE', 'ADMIN_ADJUSTMENT_CREDIT', 'ADMIN_ADJUSTMENT_DEBIT');
+CREATE TYPE "WithdrawalStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'PAID', 'CANCELLED');
+CREATE TYPE "SalesAttributionStatus" AS ENUM ('ACTIVE', 'INACTIVE');
+CREATE TYPE "CommissionCalculationType" AS ENUM ('PERCENT', 'FIXED_AMOUNT');
+CREATE TYPE "CommissionStatus" AS ENUM ('PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'REVERSED');
+
+CREATE TABLE "ReferralCode" ("id" TEXT NOT NULL, "userId" TEXT NOT NULL, "code" TEXT NOT NULL, "isActive" BOOLEAN NOT NULL DEFAULT true, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "ReferralCode_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "ReferralAttribution" ("id" TEXT NOT NULL, "referrerUserId" TEXT NOT NULL, "referredUserId" TEXT NOT NULL, "referralCodeId" TEXT NOT NULL, "status" "ReferralAttributionStatus" NOT NULL DEFAULT 'ATTRIBUTED', "qualifyingPurchaseId" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "qualifiedAt" TIMESTAMP(3), CONSTRAINT "ReferralAttribution_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Wallet" ("id" TEXT NOT NULL, "userId" TEXT NOT NULL, "currency" TEXT NOT NULL DEFAULT 'IRR', "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "Wallet_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "WalletTransaction" ("id" TEXT NOT NULL, "walletId" TEXT NOT NULL, "type" "WalletTransactionType" NOT NULL, "amount" BIGINT NOT NULL, "currency" TEXT NOT NULL, "referenceType" TEXT, "referenceId" TEXT, "idempotencyKey" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "WalletTransaction_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "WithdrawalRequest" ("id" TEXT NOT NULL, "userId" TEXT NOT NULL, "walletId" TEXT NOT NULL, "amount" BIGINT NOT NULL, "status" "WithdrawalStatus" NOT NULL DEFAULT 'PENDING', "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "approvedAt" TIMESTAMP(3), "paidAt" TIMESTAMP(3), "rejectedAt" TIMESTAMP(3), CONSTRAINT "WithdrawalRequest_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "SalesAttribution" ("id" TEXT NOT NULL, "salesPartnerUserId" TEXT NOT NULL, "customerUserId" TEXT NOT NULL, "status" "SalesAttributionStatus" NOT NULL DEFAULT 'ACTIVE', "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "SalesAttribution_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "SalesCommissionRule" ("id" TEXT NOT NULL, "type" "CommissionCalculationType" NOT NULL, "value" DECIMAL(65,30) NOT NULL, "isActive" BOOLEAN NOT NULL DEFAULT true, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "SalesCommissionRule_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "SalesCommission" ("id" TEXT NOT NULL, "salesPartnerUserId" TEXT NOT NULL, "purchaseId" TEXT NOT NULL, "salesAttributionId" TEXT NOT NULL, "ruleId" TEXT, "calculationType" "CommissionCalculationType" NOT NULL, "calculationValueSnapshot" DECIMAL(65,30) NOT NULL, "amountSnapshot" BIGINT NOT NULL, "currencySnapshot" TEXT NOT NULL, "status" "CommissionStatus" NOT NULL DEFAULT 'PENDING_APPROVAL', "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "approvedAt" TIMESTAMP(3), "rejectedAt" TIMESTAMP(3), "reversedAt" TIMESTAMP(3), CONSTRAINT "SalesCommission_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "CommercialSettings" ("id" TEXT NOT NULL, "referralEnabled" BOOLEAN NOT NULL DEFAULT true, "referralRewardAmount" BIGINT NOT NULL DEFAULT 0, "minimumWithdrawalAmount" BIGINT NOT NULL DEFAULT 0, "withdrawalsEnabled" BOOLEAN NOT NULL DEFAULT false, "salesCommissionEnabled" BOOLEAN NOT NULL DEFAULT false, "autoApproveCommissionAfterPayment" BOOLEAN NOT NULL DEFAULT false, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "CommercialSettings_pkey" PRIMARY KEY ("id"));
+
+CREATE UNIQUE INDEX "ReferralCode_code_key" ON "ReferralCode"("code");
+CREATE INDEX "ReferralCode_userId_isActive_idx" ON "ReferralCode"("userId", "isActive");
+CREATE UNIQUE INDEX "ReferralAttribution_referredUserId_key" ON "ReferralAttribution"("referredUserId");
+CREATE UNIQUE INDEX "ReferralAttribution_qualifyingPurchaseId_key" ON "ReferralAttribution"("qualifyingPurchaseId");
+CREATE INDEX "ReferralAttribution_referrerUserId_status_idx" ON "ReferralAttribution"("referrerUserId", "status");
+CREATE UNIQUE INDEX "Wallet_userId_key" ON "Wallet"("userId");
+CREATE UNIQUE INDEX "WalletTransaction_idempotencyKey_key" ON "WalletTransaction"("idempotencyKey");
+CREATE INDEX "WalletTransaction_walletId_createdAt_idx" ON "WalletTransaction"("walletId", "createdAt");
+CREATE INDEX "WalletTransaction_referenceId_idx" ON "WalletTransaction"("referenceId");
+CREATE INDEX "WithdrawalRequest_userId_status_idx" ON "WithdrawalRequest"("userId", "status");
+CREATE INDEX "WithdrawalRequest_walletId_status_idx" ON "WithdrawalRequest"("walletId", "status");
+CREATE UNIQUE INDEX "SalesAttribution_customerUserId_key" ON "SalesAttribution"("customerUserId");
+CREATE INDEX "SalesAttribution_salesPartnerUserId_status_idx" ON "SalesAttribution"("salesPartnerUserId", "status");
+CREATE UNIQUE INDEX "SalesCommission_purchaseId_key" ON "SalesCommission"("purchaseId");
+CREATE INDEX "SalesCommission_salesPartnerUserId_status_idx" ON "SalesCommission"("salesPartnerUserId", "status");
+
+ALTER TABLE "ReferralCode" ADD CONSTRAINT "ReferralCode_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "ReferralAttribution" ADD CONSTRAINT "ReferralAttribution_referrerUserId_fkey" FOREIGN KEY ("referrerUserId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "ReferralAttribution" ADD CONSTRAINT "ReferralAttribution_referredUserId_fkey" FOREIGN KEY ("referredUserId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "ReferralAttribution" ADD CONSTRAINT "ReferralAttribution_referralCodeId_fkey" FOREIGN KEY ("referralCodeId") REFERENCES "ReferralCode"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "ReferralAttribution" ADD CONSTRAINT "ReferralAttribution_qualifyingPurchaseId_fkey" FOREIGN KEY ("qualifyingPurchaseId") REFERENCES "PlanPurchase"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Wallet" ADD CONSTRAINT "Wallet_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "WalletTransaction" ADD CONSTRAINT "WalletTransaction_walletId_fkey" FOREIGN KEY ("walletId") REFERENCES "Wallet"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "WithdrawalRequest" ADD CONSTRAINT "WithdrawalRequest_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "WithdrawalRequest" ADD CONSTRAINT "WithdrawalRequest_walletId_fkey" FOREIGN KEY ("walletId") REFERENCES "Wallet"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "SalesAttribution" ADD CONSTRAINT "SalesAttribution_salesPartnerUserId_fkey" FOREIGN KEY ("salesPartnerUserId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "SalesAttribution" ADD CONSTRAINT "SalesAttribution_customerUserId_fkey" FOREIGN KEY ("customerUserId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "SalesCommission" ADD CONSTRAINT "SalesCommission_salesPartnerUserId_fkey" FOREIGN KEY ("salesPartnerUserId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "SalesCommission" ADD CONSTRAINT "SalesCommission_purchaseId_fkey" FOREIGN KEY ("purchaseId") REFERENCES "PlanPurchase"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "SalesCommission" ADD CONSTRAINT "SalesCommission_salesAttributionId_fkey" FOREIGN KEY ("salesAttributionId") REFERENCES "SalesAttribution"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "SalesCommission" ADD CONSTRAINT "SalesCommission_ruleId_fkey" FOREIGN KEY ("ruleId") REFERENCES "SalesCommissionRule"("id") ON DELETE SET NULL ON UPDATE CASCADE;

@@ -1,0 +1,4 @@
+import test from 'node:test'; import assert from 'node:assert/strict'; import fs from 'node:fs';
+const root = new URL('..', import.meta.url); const read = (file) => fs.readFileSync(new URL(file, root), 'utf8');
+test('B7 admin route surface is permission-based and uses real contracts', () => { const shell = read('components/admin-shell.jsx'); assert.match(shell, /can\(session, permission\)/); assert.match(read('pages/admin/users.jsx'), /admin\/users/); assert.match(read('pages/admin/providers.jsx'), /admin\/providers/); assert.match(read('pages/admin/commissions.jsx'), /admin\/commissions/); assert.match(read('pages/admin/settings.jsx'), /admin\/commercial-settings/); });
+test('B7 admin UI does not invent role/report capability', () => { const page = read('pages/admin/index.jsx'); assert.match(page, /metric ساختگی/); assert.doesNotMatch(page, /roles|permissions|reports/i); });

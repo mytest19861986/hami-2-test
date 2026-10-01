@@ -1,0 +1,12 @@
+ALTER TABLE "Province" ADD COLUMN "sourceCode" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "Province" ADD COLUMN "sourceVersion" TEXT NOT NULL DEFAULT 'SCI-1404';
+ALTER TABLE "City" ADD COLUMN "sourceCode" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "City" ADD COLUMN "sourceVersion" TEXT NOT NULL DEFAULT 'SCI-1404';
+UPDATE "Province" SET "sourceCode" = CASE WHEN "id" = 'dev-tehran' THEN '23' ELSE "code" END, "code" = CASE WHEN "id" = 'dev-tehran' THEN '23' ELSE "code" END;
+UPDATE "City" SET "sourceCode" = CASE WHEN "id" = 'dev-tehran-city' THEN '1576' ELSE "id" END;
+ALTER TABLE "Province" ALTER COLUMN "sourceCode" DROP DEFAULT;
+ALTER TABLE "Province" ALTER COLUMN "sourceVersion" DROP DEFAULT;
+ALTER TABLE "City" ALTER COLUMN "sourceCode" DROP DEFAULT;
+ALTER TABLE "City" ALTER COLUMN "sourceVersion" DROP DEFAULT;
+CREATE UNIQUE INDEX "Province_sourceCode_key" ON "Province"("sourceCode");
+CREATE UNIQUE INDEX "City_sourceCode_key" ON "City"("sourceCode");

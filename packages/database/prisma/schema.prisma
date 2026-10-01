@@ -1,0 +1,724 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                          String                    @id @default(uuid())
+  phone                       String                    @unique
+  nationalId                  String?
+  passwordHash                String?
+  mobileVerifiedAt            DateTime?
+  status                      UserStatus                @default(PENDING)
+  createdAt                   DateTime                  @default(now())
+  updatedAt                   DateTime                  @updatedAt
+  roles                       UserRole[]
+  auditLogs                   AuditLog[]
+  otpChallenges               OtpChallenge[]
+  sessions                    AuthSession[]
+  sessionFamilies             SessionFamily[]
+  profile                     UserProfile?
+  addresses                   Address[]
+  providerMemberships         ProviderMembership[]
+  purchases                   PlanPurchase[]
+  benefitMemberships          BenefitMembership[]
+  referralCodes               ReferralCode[]
+  referredAttribution         ReferralAttribution?      @relation("ReferredUser")
+  referrerAttributions        ReferralAttribution[]     @relation("ReferrerUser")
+  wallet                      Wallet?
+  withdrawalRequests          WithdrawalRequest[]
+  salesAttributionsAsPartner  SalesAttribution[]        @relation("SalesPartner")
+  salesAttributionsAsCustomer SalesAttribution[]        @relation("SalesCustomer")
+  commissions                 SalesCommission[]
+  authorizationAuditEvents    AuthorizationAuditEvent[]
+}
+
+model UserProfile {
+  id         String    @id @default(uuid())
+  userId     String    @unique
+  firstName  String
+  lastName   String
+  nationalId String?   @unique
+  birthDate  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  user       User      @relation(fields: [userId], references: [id])
+}
+
+model Address {
+  id            String   @id @default(uuid())
+  userId        String
+  title         String
+  recipientName String
+  phone         String
+  provinceId    String
+  cityId        String
+  postalCode    String
+  line1         String
+  line2         String?
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id])
+  province      Province @relation(fields: [provinceId], references: [id])
+  city          City     @relation(fields: [cityId], references: [id])
+
+  @@index([userId])
+}
+
+model Province {
+  id            String     @id @default(uuid())
+  name          String
+  code          String     @unique
+  sourceCode    String     @unique
+  sourceVersion String
+  cities        City[]
+  addresses     Address[]
+  providers     Provider[]
+}
+
+model City {
+  id            String     @id @default(uuid())
+  provinceId    String
+  name          String
+  sourceCode    String     @unique
+  sourceVersion String
+  province      Province   @relation(fields: [provinceId], references: [id])
+  addresses     Address[]
+  providers     Provider[]
+
+  @@index([provinceId])
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum ProviderType {
+  DOCTOR
+}
+
+enum ProviderStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum ProviderMemberRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+model Provider {
+  id            String                @id @default(uuid())
+  type          ProviderType
+  status        ProviderStatus        @default(DRAFT)
+  displayName   String
+  provinceId    String
+  cityId        String
+  address       String
+  phone         String
+  imageUrl      String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  province      Province              @relation(fields: [provinceId], references: [id])
+  city          City                  @relation(fields: [cityId], references: [id])
+  doctorProfile DoctorProfile?
+  memberships   ProviderMembership[]
+  planBenefits  PlanProviderBenefit[]
+
+  @@index([status, type, provinceId, cityId])
+}
+
+model DoctorProfile {
+  id                   String           @id @default(uuid())
+  providerId           String           @unique
+  medicalCouncilNumber String           @unique
+  specialtyId          String
+  provider             Provider         @relation(fields: [providerId], references: [id])
+  specialty            MedicalSpecialty @relation(fields: [specialtyId], references: [id])
+
+  @@index([specialtyId])
+}
+
+model MedicalSpecialty {
+  id      String          @id @default(uuid())
+  name    String          @unique
+  doctors DoctorProfile[]
+}
+
+model ProviderMembership {
+  providerId String
+  userId     String
+  role       ProviderMemberRole @default(OWNER)
+  provider   Provider           @relation(fields: [providerId], references: [id])
+  user       User               @relation(fields: [userId], references: [id])
+
+  @@id([providerId, userId])
+  @@index([userId])
+}
+
+enum BenefitPlanStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum DiscountType {
+  PERCENT
+  FIXED_AMOUNT
+  OTHER
+}
+
+enum PurchaseStatus {
+  PENDING_PAYMENT
+  PAID
+  CANCELLED
+  REFUNDED
+}
+
+enum BenefitMembershipStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+model BenefitPlan {
+  id               String                @id @default(uuid())
+  code             String                @unique
+  name             String
+  description      String?
+  priceAmount      BigInt
+  currency         String
+  validityDays     Int
+  status           BenefitPlanStatus     @default(DRAFT)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  providerBenefits PlanProviderBenefit[]
+  purchases        PlanPurchase[]
+  memberships      BenefitMembership[]
+
+  @@index([status, createdAt])
+}
+
+model PlanProviderBenefit {
+  id            String       @id @default(uuid())
+  planId        String
+  providerId    String
+  discountType  DiscountType @default(PERCENT)
+  discountValue Decimal
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  plan          BenefitPlan  @relation(fields: [planId], references: [id])
+  provider      Provider     @relation(fields: [providerId], references: [id])
+
+  @@unique([planId, providerId])
+  @@index([providerId, isActive])
+}
+
+model PlanPurchase {
+  id                    String               @id @default(uuid())
+  userId                String
+  planId                String
+  amountSnapshot        BigInt
+  currencySnapshot      String
+  validityDaysSnapshot  Int
+  status                PurchaseStatus       @default(PENDING_PAYMENT)
+  paymentReference      String?              @unique
+  paidAt                DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  user                  User                 @relation(fields: [userId], references: [id])
+  plan                  BenefitPlan          @relation(fields: [planId], references: [id])
+  membership            BenefitMembership?
+  referralQualification ReferralAttribution?
+  salesCommission       SalesCommission?
+
+  @@index([userId, createdAt])
+  @@index([planId, status])
+}
+
+model BenefitMembership {
+  id         String                  @id @default(uuid())
+  userId     String
+  planId     String
+  purchaseId String                  @unique
+  status     BenefitMembershipStatus @default(PENDING)
+  startsAt   DateTime?
+  endsAt     DateTime?
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+  user       User                    @relation(fields: [userId], references: [id])
+  plan       BenefitPlan             @relation(fields: [planId], references: [id])
+  purchase   PlanPurchase            @relation(fields: [purchaseId], references: [id])
+
+  @@index([userId, status, endsAt])
+}
+
+enum ReferralAttributionStatus {
+  ATTRIBUTED
+  QUALIFIED
+  REWARDED
+  REVERSED
+}
+
+enum WalletTransactionType {
+  REFERRAL_REWARD
+  REFERRAL_REVERSAL
+  WITHDRAWAL_RESERVATION
+  WITHDRAWAL_RELEASE
+  ADMIN_ADJUSTMENT_CREDIT
+  ADMIN_ADJUSTMENT_DEBIT
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  PAYOUT_PENDING
+  PAYOUT_UNKNOWN
+  REJECTED
+  FAILED
+  PAID
+  CANCELLED
+}
+
+enum PayoutOperationStatus {
+  CREATED
+  PAYOUT_PENDING
+  PAYOUT_UNKNOWN
+  FAILED
+  PAID
+}
+
+enum PayoutFeeStatus {
+  PENDING
+  RECOGNIZED
+  VOID
+}
+
+enum PayoutDiscrepancyStatus {
+  OPEN
+  RESOLVED
+}
+
+enum SalesAttributionStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CommissionCalculationType {
+  PERCENT
+  FIXED_AMOUNT
+}
+
+enum CommissionStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  REVERSED
+}
+
+model ReferralCode {
+  id           String                @id @default(uuid())
+  userId       String
+  code         String                @unique
+  isActive     Boolean               @default(true)
+  createdAt    DateTime              @default(now())
+  user         User                  @relation(fields: [userId], references: [id])
+  attributions ReferralAttribution[]
+
+  @@index([userId, isActive])
+}
+
+model ReferralAttribution {
+  id                   String                    @id @default(uuid())
+  referrerUserId       String
+  referredUserId       String                    @unique
+  referralCodeId       String
+  status               ReferralAttributionStatus @default(ATTRIBUTED)
+  qualifyingPurchaseId String?                   @unique
+  createdAt            DateTime                  @default(now())
+  qualifiedAt          DateTime?
+  referrer             User                      @relation("ReferrerUser", fields: [referrerUserId], references: [id])
+  referred             User                      @relation("ReferredUser", fields: [referredUserId], references: [id])
+  referralCode         ReferralCode              @relation(fields: [referralCodeId], references: [id])
+  qualifyingPurchase   PlanPurchase?             @relation(fields: [qualifyingPurchaseId], references: [id])
+
+  @@index([referrerUserId, status])
+}
+
+model Wallet {
+  id           String              @id @default(uuid())
+  userId       String              @unique
+  currency     String              @default("IRR")
+  createdAt    DateTime            @default(now())
+  user         User                @relation(fields: [userId], references: [id])
+  transactions WalletTransaction[]
+  withdrawals  WithdrawalRequest[]
+}
+
+model WalletTransaction {
+  id             String                @id @default(uuid())
+  walletId       String
+  type           WalletTransactionType
+  amount         BigInt
+  currency       String
+  referenceType  String?
+  referenceId    String?
+  idempotencyKey String                @unique
+  createdAt      DateTime              @default(now())
+  wallet         Wallet                @relation(fields: [walletId], references: [id])
+
+  @@index([walletId, createdAt])
+  @@index([referenceId])
+}
+
+model WithdrawalRequest {
+  id                     String              @id @default(uuid())
+  userId                 String
+  walletId               String
+  amount                 BigInt
+  currency               String              @default("IRR")
+  beneficiarySnapshot    Json?
+  destinationSnapshot    Json?
+  externalAttemptStarted Boolean             @default(false)
+  status                 WithdrawalStatus    @default(PENDING)
+  createdAt              DateTime            @default(now())
+  approvedAt             DateTime?
+  paidAt                 DateTime?
+  rejectedAt             DateTime?
+  failedAt               DateTime?
+  user                   User                @relation(fields: [userId], references: [id])
+  wallet                 Wallet              @relation(fields: [walletId], references: [id])
+  payoutOperation        PayoutOperation?
+  discrepancies          PayoutDiscrepancy[]
+
+  @@index([userId, status])
+  @@index([walletId, status])
+}
+
+model PayoutOperation {
+  id                     String                @id @default(uuid())
+  withdrawalId           String                @unique
+  idempotencyKey         String                @unique
+  status                 PayoutOperationStatus @default(CREATED)
+  providerReference      String?
+  providerStatus         String?
+  amountSnapshot         BigInt
+  currencySnapshot       String
+  beneficiarySnapshot    Json
+  externalAttemptStarted Boolean               @default(false)
+  acceptedAt             DateTime?
+  settledAt              DateTime?
+  failedAt               DateTime?
+  lastErrorClass         String?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  withdrawal             WithdrawalRequest     @relation(fields: [withdrawalId], references: [id])
+  fees                   PayoutFeeEvent[]
+  discrepancies          PayoutDiscrepancy[]
+
+  @@index([status, updatedAt])
+}
+
+model PayoutFeeEvent {
+  id                String          @id @default(uuid())
+  payoutOperationId String
+  amount            BigInt
+  currency          String
+  status            PayoutFeeStatus @default(PENDING)
+  recognizedAt      DateTime?
+  createdAt         DateTime        @default(now())
+  payoutOperation   PayoutOperation @relation(fields: [payoutOperationId], references: [id])
+
+  @@unique([payoutOperationId, status])
+}
+
+model PayoutDiscrepancy {
+  id                String                  @id @default(uuid())
+  payoutOperationId String
+  withdrawalId      String
+  classification    String
+  status            PayoutDiscrepancyStatus @default(OPEN)
+  details           Json?
+  resolutionReason  String?
+  resolvedBy        String?
+  createdAt         DateTime                @default(now())
+  resolvedAt        DateTime?
+  payoutOperation   PayoutOperation         @relation(fields: [payoutOperationId], references: [id])
+  withdrawal        WithdrawalRequest       @relation(fields: [withdrawalId], references: [id])
+
+  @@index([status, createdAt])
+  @@index([withdrawalId, createdAt])
+}
+
+model SalesAttribution {
+  id                 String                 @id @default(uuid())
+  salesPartnerUserId String
+  customerUserId     String                 @unique
+  status             SalesAttributionStatus @default(ACTIVE)
+  createdAt          DateTime               @default(now())
+  salesPartner       User                   @relation("SalesPartner", fields: [salesPartnerUserId], references: [id])
+  customer           User                   @relation("SalesCustomer", fields: [customerUserId], references: [id])
+  commissions        SalesCommission[]
+
+  @@index([salesPartnerUserId, status])
+}
+
+model SalesCommissionRule {
+  id          String                    @id @default(uuid())
+  type        CommissionCalculationType
+  value       Decimal
+  isActive    Boolean                   @default(true)
+  createdAt   DateTime                  @default(now())
+  commissions SalesCommission[]
+}
+
+model SalesCommission {
+  id                       String                    @id @default(uuid())
+  salesPartnerUserId       String
+  purchaseId               String                    @unique
+  salesAttributionId       String
+  ruleId                   String?
+  calculationType          CommissionCalculationType
+  calculationValueSnapshot Decimal
+  amountSnapshot           BigInt
+  currencySnapshot         String
+  status                   CommissionStatus          @default(PENDING_APPROVAL)
+  createdAt                DateTime                  @default(now())
+  approvedAt               DateTime?
+  rejectedAt               DateTime?
+  reversedAt               DateTime?
+  salesPartner             User                      @relation(fields: [salesPartnerUserId], references: [id])
+  purchase                 PlanPurchase              @relation(fields: [purchaseId], references: [id])
+  salesAttribution         SalesAttribution          @relation(fields: [salesAttributionId], references: [id])
+  rule                     SalesCommissionRule?      @relation(fields: [ruleId], references: [id])
+
+  @@index([salesPartnerUserId, status])
+}
+
+model CommercialSettings {
+  id                                String   @id @default(uuid())
+  referralEnabled                   Boolean  @default(true)
+  referralRewardAmount              BigInt   @default(0)
+  minimumWithdrawalAmount           BigInt   @default(0)
+  withdrawalsEnabled                Boolean  @default(false)
+  salesCommissionEnabled            Boolean  @default(false)
+  autoApproveCommissionAfterPayment Boolean  @default(false)
+  updatedAt                         DateTime @updatedAt
+}
+
+enum OtpPurpose {
+  REGISTER
+  LOGIN
+  PASSWORD_RESET
+  MOBILE_VERIFY
+}
+
+enum OtpDeliveryStatus {
+  PENDING
+  ACCEPTED
+  DELIVERED
+  FAILED
+  UNKNOWN
+}
+
+model OtpChallenge {
+  id           String        @id @default(uuid())
+  userId       String?
+  phone        String
+  purpose      OtpPurpose
+  codeHash     String
+  expiresAt    DateTime
+  attemptCount Int           @default(0)
+  maxAttempts  Int           @default(5)
+  consumedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  user         User?         @relation(fields: [userId], references: [id])
+  deliveries   OtpDelivery[]
+
+  @@index([phone, purpose])
+}
+
+model OtpDelivery {
+  id                String            @id @default(uuid())
+  challengeId       String
+  purpose           OtpPurpose
+  channel           String            @default("SMS")
+  status            OtpDeliveryStatus @default(PENDING)
+  providerKey       String            @unique
+  providerMessageId String?
+  idempotencyKey    String?           @unique
+  semanticHash      String
+  attemptCount      Int               @default(0)
+  lastErrorClass    String?
+  acceptedAt        DateTime?
+  deliveredAt       DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  challenge         OtpChallenge      @relation(fields: [challengeId], references: [id])
+
+  @@index([challengeId, createdAt])
+  @@index([status, createdAt])
+}
+
+model AuthSession {
+  id                String         @id @default(uuid())
+  userId            String
+  refreshTokenHash  String
+  expiresAt         DateTime
+  absoluteExpiresAt DateTime
+  revokedAt         DateTime?
+  createdAt         DateTime       @default(now())
+  lastUsedAt        DateTime?
+  familyId          String?
+  generation        Int            @default(1)
+  consumedAt        DateTime?
+  idleExpiresAt     DateTime?
+  user              User           @relation(fields: [userId], references: [id])
+  family            SessionFamily? @relation(fields: [familyId], references: [id])
+
+  @@index([userId])
+  @@index([familyId, generation])
+  @@index([familyId, consumedAt])
+}
+
+model SessionFamily {
+  id                String                         @id @default(uuid())
+  userId            String
+  createdAt         DateTime                       @default(now())
+  lastRefreshedAt   DateTime?
+  absoluteExpiresAt DateTime
+  status            SessionFamilyStatus            @default(ACTIVE)
+  revocationReason  SessionFamilyRevocationReason?
+  user              User                           @relation(fields: [userId], references: [id])
+  sessions          AuthSession[]
+
+  @@index([userId, status])
+  @@index([status, absoluteExpiresAt])
+}
+
+enum SessionFamilyStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum SessionFamilyRevocationReason {
+  LOGOUT
+  LOGOUT_ALL
+  PASSWORD_CHANGED
+  SECURITY_EVENT
+  REPLAY_DETECTED
+  USER_DISABLED
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  permissions RolePermission[]
+  users       UserRole[]
+}
+
+model Permission {
+  id        String           @id @default(uuid())
+  resource  String
+  action    String
+  roleLinks RolePermission[]
+
+  @@unique([resource, action])
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id])
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorUserId String?
+  action      String
+  entity      String
+  createdAt   DateTime @default(now())
+  user        User?    @relation(fields: [actorUserId], references: [id])
+}
+
+model AuthorizationAuditEvent {
+  auditId                  String                         @id @default(uuid()) @map("audit_id")
+  requestId                String                         @map("request_id")
+  actorId                  String                         @map("actor_id")
+  actorType                String                         @map("actor_type")
+  action                   String
+  entity                   String
+  result                   String
+  reasonCode               String?                        @map("reason_code")
+  endpoint                 String
+  capability               String
+  opaqueResourceId         String?                        @map("opaque_resource_id")
+  hashedSessionFingerprint String                         @map("hashed_session_fingerprint")
+  dedupKey                 String?                        @map("dedup_key")
+  schemaVersion            Int                            @default(1) @map("schema_version")
+  createdAt                DateTime                       @default(now()) @map("created_at")
+  actor                    User                           @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  outbox                   AuthorizationAuditOutbox?
+  deadLetters              AuthorizationAuditDeadLetter[]
+
+  @@unique([requestId, action])
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@map("authorization_audit_event")
+}
+
+model AuthorizationAuditOutbox {
+  id          String                  @id @default(uuid())
+  auditId     String                  @unique @map("audit_id")
+  payload     Json
+  createdAt   DateTime                @default(now()) @map("created_at")
+  deliveredAt DateTime?               @map("delivered_at")
+  auditEvent  AuthorizationAuditEvent @relation(fields: [auditId], references: [auditId], onDelete: Restrict)
+
+  @@index([deliveredAt, createdAt])
+  @@map("authorization_audit_outbox")
+}
+
+model AuthorizationAuditDeadLetter {
+  id           String                  @id @default(uuid())
+  auditId      String                  @map("audit_id")
+  requestId    String                  @map("request_id")
+  action       String
+  payload      Json
+  failureClass String                  @map("failure_class")
+  createdAt    DateTime                @default(now()) @map("created_at")
+  auditEvent   AuthorizationAuditEvent @relation(fields: [auditId], references: [auditId], onDelete: Restrict)
+
+  @@index([requestId, action])
+  @@index([createdAt])
+  @@map("authorization_audit_dead_letter")
+}

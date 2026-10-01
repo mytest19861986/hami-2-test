@@ -1,0 +1,3 @@
+import { AdminShell, useAdminResource } from '../../components/admin-shell';
+import { formatMoney, labelStatus } from '../../lib/presentation';
+export default function AdminWithdrawals() { const { data, message } = useAdminResource('/admin/withdrawals'); return <AdminShell title="مدیریت برداشت‌ها" permission="withdrawals.read"><p role="status">{message}</p>{data && <ul className="card-list">{!data.length && <li>درخواستی وجود ندارد.</li>}{data.map((row) => <li key={row.id}><h2>{formatMoney(row.amount, row.currency)}</h2><p>وضعیت: {labelStatus(row.status)}</p><small>{row.createdAt ? new Date(row.createdAt).toLocaleString('fa-IR') : '—'}</small></li>)}</ul>}</AdminShell>; }
