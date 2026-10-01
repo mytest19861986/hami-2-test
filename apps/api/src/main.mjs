@@ -487,6 +487,21 @@ class RewardsController {
     return { id: wallet.id, currency: wallet.currency, balance: balance.toString(), transactions: wallet.transactions.map((item) => ({ ...item, amount: item.amount.toString() })) };
   }
   async transactions(req) { const result = await this.wallet(req); return result.transactions; }
+  async adminWalletReporting(req) {
+    await new AuthController().currentWithPermission(req, 'users.read');
+    const [walletCount, transactions, withdrawals] = await Promise.all([
+      prisma.wallet.count(),
+      prisma.walletTransaction.groupBy({ by: ['currency', 'type'], _count: { _all: true }, _sum: { amount: true } }),
+      prisma.withdrawalRequest.groupBy({ by: ['currency', 'status'], _count: { _all: true } }),
+    ]);
+    return {
+      generatedAt: new Date().toISOString(),
+      walletCount,
+      currencies: [...new Set([...transactions.map((row) => row.currency), ...withdrawals.map((row) => row.currency)])].sort(),
+      ledger: transactions.map((row) => ({ currency: row.currency, type: row.type, count: row._count._all, signedAmountMinor: String(row._sum.amount ?? 0n) })),
+      withdrawals: withdrawals.map((row) => ({ currency: row.currency, status: row.status, count: row._count._all })),
+    };
+  }
   async withdraw(body, req) {
     const user = await requireUser(req); let amount;
     try { amount = parseFinancialInteger(body?.amount, { positive: true }); } catch { throw new Error('INVALID_WITHDRAWAL_AMOUNT'); }
@@ -522,6 +537,7 @@ Post('referrals/claim')(RewardsController.prototype, 'claimReferral', Object.get
 Get('users/me/referrals')(RewardsController.prototype, 'referrals', Object.getOwnPropertyDescriptor(RewardsController.prototype, 'referrals')); Req()(RewardsController.prototype, 'referrals', 0);
 Get('users/me/wallet')(RewardsController.prototype, 'wallet', Object.getOwnPropertyDescriptor(RewardsController.prototype, 'wallet')); Req()(RewardsController.prototype, 'wallet', 0);
 Get('users/me/wallet/transactions')(RewardsController.prototype, 'transactions', Object.getOwnPropertyDescriptor(RewardsController.prototype, 'transactions')); Req()(RewardsController.prototype, 'transactions', 0);
+Get('admin/wallet/reporting')(RewardsController.prototype, 'adminWalletReporting', Object.getOwnPropertyDescriptor(RewardsController.prototype, 'adminWalletReporting')); Req()(RewardsController.prototype, 'adminWalletReporting', 0);
 Post('users/me/wallet/withdrawals')(RewardsController.prototype, 'withdraw', Object.getOwnPropertyDescriptor(RewardsController.prototype, 'withdraw')); Body()(RewardsController.prototype, 'withdraw', 0); Req()(RewardsController.prototype, 'withdraw', 1);
 Get('users/me/wallet/withdrawals')(RewardsController.prototype, 'myWithdrawals', Object.getOwnPropertyDescriptor(RewardsController.prototype, 'myWithdrawals')); Req()(RewardsController.prototype, 'myWithdrawals', 0);
 Controller()(RewardsController);
