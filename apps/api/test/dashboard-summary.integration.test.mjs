@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
-const base = 'http://127.0.0.1:4000/api/v1';
+const base = `${process.env.TEST_BASE_URL || 'http://127.0.0.1:4000'}/api/v1`;
 const password = 'TEMP-Dashboard-Integration-2026!';
 
 async function registerAndLogin(phone) {
