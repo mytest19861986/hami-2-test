@@ -2,7 +2,7 @@ export const statusLabels = {
   ACTIVE: 'فعال', EXPIRED: 'منقضی', INACTIVE: 'غیرفعال', DRAFT: 'پیش‌نویس', PENDING: 'در انتظار',
   PENDING_REVIEW: 'در انتظار بررسی', APPROVED: 'تأییدشده', REJECTED: 'ردشده', INITIATED: 'در انتظار تأیید', CONFIRMED: 'تأیید شده',
   SUSPENDED: 'معلق', DISABLED: 'غیرفعال', PENDING_APPROVAL: 'در انتظار تأیید',
-  PAID: 'پرداخت‌شده', CANCELLED: 'لغوشده', FROZEN: 'منجمد و نیازمند بررسی', PAYOUT_PENDING: 'در حال پرداخت', PAYOUT_UNKNOWN: 'در حال بررسی؛ اقدامی لازم نیست', ATTRIBUTED: 'ثبت‌شده',
+  PAID: 'پرداخت‌شده', CANCELLED: 'لغوشده', FROZEN: 'منجمد و نیازمند بررسی', FAILED: 'ناموفق', PAYOUT_PENDING: 'در حال پرداخت', PAYOUT_UNKNOWN: 'در حال بررسی؛ اقدامی لازم نیست', ATTRIBUTED: 'ثبت‌شده',
   QUALIFIED: 'واجد شرایط', REWARDED: 'پاداش‌داده‌شده', REVERSED: 'برگشت‌خورده', EXPIRED: 'منقضی شده',
   PENDING_PAYMENT: 'در انتظار پرداخت', COMPLETED: 'تکمیل‌شده', REFUNDED: 'بازپرداخت‌شده',
 };
