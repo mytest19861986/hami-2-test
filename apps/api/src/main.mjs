@@ -1045,6 +1045,10 @@ async function seedGeography() {
 
 const app = await NestFactory.create(AppModule);
 app.setGlobalPrefix('api/v1');
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) assertOriginAndCsrf(req);
+  next();
+});
 app.useGlobalFilters({ catch(exception, host) {
   const response = host.switchToHttp().getResponse();
   const code = exception?.message ?? 'INTERNAL_ERROR';

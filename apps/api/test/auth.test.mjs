@@ -64,6 +64,26 @@ test('password setup is rejected without a verified registration proof', async (
   assert.equal(response.status, 401);
 });
 
+test('OTP request is rate-limited per mobile and IP key', async () => {
+  const target = `0912${String(Math.floor(Math.random() * 10000000)).padStart(7, '0')}`;
+  const responses = [];
+  for (let index = 0; index < 6; index += 1) responses.push(await fetch(`${base}/auth/register/request-otp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: target }) }));
+  assert.deepEqual(responses.slice(0, 5).map((response) => response.status), [201, 201, 201, 201, 201]);
+  assert.equal(responses[5].status, 429);
+});
+
+test('cookie-authenticated mutation requires origin and CSRF token', async () => {
+  const login = await fetch(`${base}/auth/login/password`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-auth-mode': 'cookie' }, body: JSON.stringify({ phone, password: 'TEMP-Dev-Password-2026!' }) });
+  assert.equal(login.status, 201);
+  const cookie = login.headers.get('set-cookie');
+  assert.ok(cookie);
+  const cookieHeader = cookie.split(',').map((item) => item.split(';')[0]).join('; ');
+  const noOrigin = await fetch(`${base}/users/me/profile`, { method: 'PUT', headers: { cookie: cookieHeader, 'content-type': 'application/json' }, body: JSON.stringify({ firstName: 'بدون', lastName: 'CSRF' }) });
+  assert.equal(noOrigin.status, 403);
+  const noToken = await fetch(`${base}/users/me/profile`, { method: 'PUT', headers: { cookie: cookieHeader, origin: 'http://localhost:3000', 'content-type': 'application/json' }, body: JSON.stringify({ firstName: 'بدون', lastName: 'Token' }) });
+  assert.equal(noToken.status, 403);
+});
+
 test('wrong OTP is rejected and cannot be reused', async () => {
   const request = await fetch(`${base}/auth/register/request-otp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone: '09120000002' }) });
   const { devCode } = await request.json();
