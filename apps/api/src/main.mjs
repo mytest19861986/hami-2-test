@@ -543,10 +543,10 @@ Get('users/me/wallet/withdrawals')(RewardsController.prototype, 'myWithdrawals',
 Controller()(RewardsController);
 
 class CommercialAdminController {
-  async settings(req) { await new AuthController().currentWithPermission(req, 'commercial_settings.read'); return prisma.commercialSettings.findFirst({ orderBy: { createdAt: 'asc' } }); }
+  async settings(req) { await new AuthController().currentWithPermission(req, 'commercial_settings.read'); const settings = await prisma.commercialSettings.findFirst({ orderBy: { updatedAt: 'asc' } }); return settings ? { ...settings, referralRewardAmount: settings.referralRewardAmount.toString(), minimumWithdrawalAmount: settings.minimumWithdrawalAmount.toString() } : null; }
   async updateSettings(body, req) {
     await new AuthController().currentWithPermission(req, 'commercial_settings.manage');
-    const current = await prisma.commercialSettings.findFirst({ orderBy: { createdAt: 'asc' } }) ?? await prisma.commercialSettings.create({ data: {} });
+    const current = await prisma.commercialSettings.findFirst({ orderBy: { updatedAt: 'asc' } }) ?? await prisma.commercialSettings.create({ data: {} });
     const data = {};
     for (const key of ['referralEnabled', 'withdrawalsEnabled', 'salesCommissionEnabled', 'autoApproveCommissionAfterPayment']) if (body?.[key] !== undefined) data[key] = Boolean(body[key]);
     for (const key of ['referralRewardAmount', 'minimumWithdrawalAmount']) if (body?.[key] !== undefined) data[key] = parseFinancialInteger(body[key], { nonNegative: true });
@@ -817,7 +817,7 @@ class WithdrawalAdminController {
           currencySnapshot: locked.currency, beneficiarySnapshot: locked.beneficiarySnapshot ?? {},
         } });
       }
-      return updated;
+    return { ...updated, referralRewardAmount: updated.referralRewardAmount.toString(), minimumWithdrawalAmount: updated.minimumWithdrawalAmount.toString() };
     });
     const event = target === 'APPROVED' ? 'WITHDRAWAL_APPROVED' : target === 'PAID' ? 'WITHDRAWAL_PAID' : 'WITHDRAWAL_REJECTED';
     await audit(actor.id, event, 'WithdrawalRequest');
