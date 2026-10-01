@@ -49,7 +49,8 @@ test('dashboard summaries enforce authenticated access, role isolation, and read
   assert.equal(customerSummary.status, 200);
   const customerPayload = await customerSummary.json();
   assert.deepEqual(Object.keys(customerPayload).sort(), ['customer', 'surface'].sort());
-  assert.deepEqual(Object.keys(customerPayload.customer).sort(), ['active_plan', 'purchase_count', 'recent_purchase_summary', 'wallet_balance'].sort());
+  assert.deepEqual(Object.keys(customerPayload.customer).sort(), ['active_plan', 'purchase_count', 'recent_activity', 'recent_purchase_summary', 'wallet_balance'].sort());
+  assert.ok(Array.isArray(customerPayload.customer.recent_activity));
   const otherCustomerSummary = await fetch(`${base}/customer/dashboard/summary`, { headers: { authorization: `Bearer ${otherCustomer.accessToken}` } });
   assert.equal(otherCustomerSummary.status, 200);
 

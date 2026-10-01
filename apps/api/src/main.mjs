@@ -701,14 +701,23 @@ class DashboardController {
 
   async customerSummary(req) {
     const actor = await requireUser(req);
-    const [memberships, purchases, wallet] = await Promise.all([
+    const [memberships, purchases, redemptions, wallet, withdrawals] = await Promise.all([
       prisma.benefitMembership.findMany({ where: { userId: actor.id }, orderBy: { createdAt: 'desc' }, take: 1, select: { status: true, endsAt: true, plan: { select: { name: true } } } }),
       prisma.planPurchase.findMany({ where: { userId: actor.id }, orderBy: { createdAt: 'desc' }, take: 5, select: { id: true, status: true, amountSnapshot: true, currencySnapshot: true, createdAt: true, plan: { select: { name: true } } } }),
-      prisma.wallet.findUnique({ where: { userId: actor.id }, include: { transactions: { select: { amount: true, currency: true } } } }),
+      prisma.redemption.findMany({ where: { customerUserId: actor.id }, orderBy: { createdAt: 'desc' }, take: 5, select: { id: true, status: true, createdAt: true, confirmedAt: true, cancelledAt: true, expiredAt: true, provider: { select: { displayName: true } } } }),
+      prisma.wallet.findUnique({ where: { userId: actor.id }, include: { transactions: { orderBy: { createdAt: 'desc' }, take: 5, select: { id: true, type: true, amount: true, currency: true, createdAt: true } } } }),
+      prisma.withdrawalRequest.findMany({ where: { userId: actor.id }, orderBy: { createdAt: 'desc' }, take: 5, select: { id: true, status: true, amount: true, currency: true, createdAt: true, paidAt: true, rejectedAt: true } }),
     ]);
     const currency = wallet?.currency ?? purchases[0]?.currencySnapshot ?? 'IRR';
-    const balance = (wallet?.transactions ?? []).filter((row) => row.currency === currency).reduce((sum, row) => sum + row.amount, 0n);
-    return { surface: 'customer', customer: { active_plan: memberships[0] ?? null, purchase_count: purchases.length, recent_purchase_summary: purchases.map((row) => ({ ...row, amountSnapshot: dashboardMoney(row.amountSnapshot, row.currencySnapshot) })), wallet_balance: wallet ? dashboardMoney(balance, currency) : null } };
+    const walletRows = wallet?.transactions ?? [];
+    const balance = walletRows.filter((row) => row.currency === currency).reduce((sum, row) => sum + row.amount, 0n);
+    const activity = [
+      ...purchases.map((row) => ({ type: 'PURCHASE', id: row.id, status: row.status, label: row.plan?.name ?? 'خرید طرح', createdAt: row.createdAt, amount: dashboardMoney(row.amountSnapshot, row.currencySnapshot) })),
+      ...redemptions.map((row) => ({ type: 'REDEMPTION', id: row.id, status: row.status, label: row.provider?.displayName ?? 'استفاده از مزیت', createdAt: row.createdAt, confirmedAt: row.confirmedAt, cancelledAt: row.cancelledAt, expiredAt: row.expiredAt })),
+      ...walletRows.map((row) => ({ type: 'WALLET_TRANSACTION', id: row.id, status: row.type, label: 'تراکنش کیف پول', createdAt: row.createdAt, amount: dashboardMoney(row.amount, row.currency) })),
+      ...withdrawals.map((row) => ({ type: 'WITHDRAWAL', id: row.id, status: row.status, label: 'درخواست برداشت', createdAt: row.createdAt, paidAt: row.paidAt, rejectedAt: row.rejectedAt, amount: dashboardMoney(row.amount, row.currency) })),
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 10);
+    return { surface: 'customer', customer: { active_plan: memberships[0] ?? null, purchase_count: purchases.length, recent_purchase_summary: purchases.map((row) => ({ ...row, amountSnapshot: dashboardMoney(row.amountSnapshot, row.currencySnapshot) })), wallet_balance: wallet ? dashboardMoney(balance, currency) : null, recent_activity: activity } };
   }
 
   async representativeSummary(req) {
