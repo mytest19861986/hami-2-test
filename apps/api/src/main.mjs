@@ -817,7 +817,7 @@ class WithdrawalAdminController {
           currencySnapshot: locked.currency, beneficiarySnapshot: locked.beneficiarySnapshot ?? {},
         } });
       }
-    return { ...updated, referralRewardAmount: updated.referralRewardAmount.toString(), minimumWithdrawalAmount: updated.minimumWithdrawalAmount.toString() };
+      return updated;
     });
     const event = target === 'APPROVED' ? 'WITHDRAWAL_APPROVED' : target === 'PAID' ? 'WITHDRAWAL_PAID' : 'WITHDRAWAL_REJECTED';
     await audit(actor.id, event, 'WithdrawalRequest');
