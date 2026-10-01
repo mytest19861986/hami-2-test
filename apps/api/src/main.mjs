@@ -425,6 +425,7 @@ class BenefitController {
 }
 
 class RedemptionController {
+  async adminList(req) { await new AuthController().currentWithPermission(req, 'redemptions.reverse'); return (await prisma.redemption.findMany({ orderBy: { createdAt: 'desc' }, take: 100, include: { provider: { select: { id: true, displayName: true } } } })).map(publicRedemption); }
   async initiate(body, req) {
     const actor = await requireUser(req);
     const key = req.headers['idempotency-key'] ?? body?.idempotencyKey;
@@ -446,6 +447,7 @@ Get('users/me/redemptions')(RedemptionController.prototype, 'mine', Object.getOw
 Post('redemptions/:id/cancel')(RedemptionController.prototype, 'cancel', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'cancel')); Req()(RedemptionController.prototype, 'cancel', 0);
 Post('providers/me/redemptions/confirm')(RedemptionController.prototype, 'confirm', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'confirm')); Body()(RedemptionController.prototype, 'confirm', 0); Req()(RedemptionController.prototype, 'confirm', 1);
 Get('providers/me/redemptions')(RedemptionController.prototype, 'providerMine', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'providerMine')); Req()(RedemptionController.prototype, 'providerMine', 0);
+Get('admin/redemptions')(RedemptionController.prototype, 'adminList', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'adminList')); Req()(RedemptionController.prototype, 'adminList', 0);
 Post('admin/redemptions/:id/reverse')(RedemptionController.prototype, 'reverse', Object.getOwnPropertyDescriptor(RedemptionController.prototype, 'reverse')); Body()(RedemptionController.prototype, 'reverse', 0); Req()(RedemptionController.prototype, 'reverse', 1);
 Controller()(RedemptionController);
 
