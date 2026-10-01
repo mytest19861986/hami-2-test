@@ -8,7 +8,8 @@ export class ApiError extends Error {
 export function mapApiError(status, payload) {
   const code = payload?.error || 'NETWORK_ERROR';
   const messages = { 400: 'اطلاعات واردشده معتبر نیست.', 401: 'نشست شما معتبر نیست.', 403: 'دسترسی به این بخش مجاز نیست.', 409: 'این درخواست با وضعیت فعلی تعارض دارد.', 429: 'تعداد درخواست‌ها زیاد است؛ دوباره تلاش کنید.' };
-  return new ApiError(status, code, messages[status] || 'ارتباط با سرویس ممکن نیست.');
+  const codeMessages = { REDEMPTION_TOKEN_INVALID: 'کد واردشده معتبر نیست.', REDEMPTION_EXPIRED: 'کد استفاده منقضی شده است.', REDEMPTION_NOT_CONFIRMABLE: 'این درخواست دیگر قابل تأیید نیست.', REDEMPTION_NOT_CANCELLABLE: 'فقط درخواست‌های در انتظار تأیید قابل لغو هستند.', REDEMPTION_NOT_ELIGIBLE: 'این عضویت یا مزیت دیگر معتبر نیست.', REVERSAL_REASON_REQUIRED: 'ثبت دلیل برگشت الزامی است.' };
+  return new ApiError(status, code, codeMessages[code] || messages[status] || 'ارتباط با سرویس ممکن نیست.');
 }
 
 export function createApiClient({ getSession, setSession, clearSession, fetchImpl = fetch } = {}) {
