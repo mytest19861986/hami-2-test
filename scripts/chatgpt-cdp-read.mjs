@@ -1,0 +1,9 @@
+const targets = await (await fetch('http://127.0.0.1:9222/json/list')).json();
+const target = targets.find((t) => t.type === 'page' && /chatgpt\.com|chat\.openai\.com/i.test(t.url) && t.url.includes('6ab836fa-6db4-83eb-a0a2-c785614dd3bf'));
+if (!target) throw new Error('target_not_found');
+const ws = new WebSocket(target.webSocketDebuggerUrl); let seq = 0; const pending = new Map();
+ws.addEventListener('message', (e) => { const d = JSON.parse(e.data); if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); } });
+const call = (method, params = {}) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, (d) => d.error ? reject(new Error(d.error.message)) : resolve(d.result)); ws.send(JSON.stringify({id, method, params})); });
+await new Promise((resolve, reject) => { ws.addEventListener('open', resolve, {once:true}); ws.addEventListener('error', reject, {once:true}); });
+const r = await call('Runtime.evaluate', {expression:`(() => ({url:location.href,readyState:document.readyState,text:document.body.innerText.slice(-12000)}))()`,returnByValue:true});
+console.log(JSON.stringify(r.result.value, null, 2)); ws.close();

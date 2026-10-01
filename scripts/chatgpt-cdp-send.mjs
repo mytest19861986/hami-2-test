@@ -5,10 +5,13 @@ const endpoint = 'http://127.0.0.1:9222/json/list';
 const args = process.argv.slice(2);
 const message = args.find((a) => a.startsWith('--message='))?.slice(10) ?? '';
 const verifyMessage = args.find((a) => a.startsWith('--verify='))?.slice(9) ?? '';
+const sendExisting = args.includes('--send-existing');
 const matcher = args.find((a) => a.startsWith('--url='))?.slice(6) ?? '';
+const targetHost = args.find((a) => a.startsWith('--host='))?.slice(7) ?? 'chatgpt';
 
 const targets = await (await fetch(endpoint)).json();
-const target = targets.find((t) => t.type === 'page' && /chatgpt\.com|chat\.openai\.com/i.test(t.url) && (!matcher || t.url.includes(matcher)));
+const hostPattern = targetHost === 'gemini' ? /gemini\.google\.com/i : /chatgpt\.com|chat\.openai\.com/i;
+const target = targets.find((t) => t.type === 'page' && hostPattern.test(t.url) && (!matcher || t.url.includes(matcher)));
 if (!target) throw new Error('target_not_found');
 
 let seq = 0;
@@ -33,17 +36,26 @@ const inspect = await evaluate(`(() => ({readyState:document.readyState,url:loca
 console.log(JSON.stringify({targetUrl:target.url,connection:'ok',page:inspect.result.value}, null, 2));
 
 if (!message) {
+  if (sendExisting) {
+    const existing = await evaluate(`(() => { const e=document.querySelector('[contenteditable="true"][aria-label="Ask ChatGPT"],textarea'); return {text:e?.value||e?.innerText||e?.textContent||''}; })()`);
+    const text = existing.result.value.text || '';
+    if (!text.trim()) { console.log(JSON.stringify({send:'not_sent',reason:'composer_empty'}, null, 2)); ws.close(); process.exit(0); }
+    const send = await evaluate(`(() => { const bs=[...document.querySelectorAll('button')].filter(b=>b.offsetWidth||b.offsetHeight); return bs.find(b=>/^send$/i.test((b.getAttribute('aria-label')||'').trim()) && !b.disabled) ?? null; })()`, true, false);
+    if (!send.result.objectId) throw new Error('send_button_not_found');
+    await call('Runtime.callFunctionOn', { objectId: send.result.objectId, functionDeclaration: `function(){ this.click(); }` });
+    console.log(JSON.stringify({send:'ok',messageLength:text.length}, null, 2)); ws.close(); process.exit(0);
+  }
   if (verifyMessage) {
     const check = await evaluate(`(() => ({bodyHasMessage:document.body.innerText.includes(${JSON.stringify(verifyMessage)}),url:location.href}))()`);
     console.log(JSON.stringify({verification:check.result.value}, null, 2));
   }
   ws.close(); process.exit(0);
 }
-const composer = await evaluate(`(() => { const xs=[...document.querySelectorAll('textarea,[contenteditable="true"],[role="textbox"]')].filter(e=>e.offsetWidth||e.offsetHeight); return xs.at(-1); })()`, true, false);
+const composer = await evaluate(`(() => { const xs=[...document.querySelectorAll('textarea,[contenteditable="true"],[role="textbox"]')].filter(e=>(e.offsetWidth||e.offsetHeight) && (e.matches('textarea') || /ask chatgpt|enter a prompt|type a message|prompt/i.test(e.getAttribute('aria-label')||e.getAttribute('placeholder')||''))); return xs.at(-1); })()`, true, false);
 if (!composer.result.objectId) throw new Error('composer_not_found');
 await call('Runtime.callFunctionOn', { objectId: composer.result.objectId, functionDeclaration: `function(){ this.focus(); }` });
 await call('Input.insertText', { text: message });
-const after = await evaluate(`(() => ({text:[...document.querySelectorAll('textarea,[contenteditable="true"],[role="textbox"]')].map(e=>e.value||e.innerText||e.textContent).filter(Boolean).at(-1)||''}))()`);
+const after = await evaluate(`(() => { const e=[...document.querySelectorAll('textarea,[contenteditable="true"],[role="textbox"]')].filter(x=>(x.offsetWidth||x.offsetHeight) && (x.matches('textarea') || /ask chatgpt|enter a prompt|type a message|prompt/i.test(x.getAttribute('aria-label')||x.getAttribute('placeholder')||''))).at(-1); return {text:e?.value||e?.innerText||e?.textContent||''}; })()`);
 if (!after.result.value.text.includes(message)) throw new Error('composer_state_rejected');
 const send = await evaluate(`(() => { const bs=[...document.querySelectorAll('button')].filter(b=>b.offsetWidth||b.offsetHeight); return bs.find(b=>/send|submit/i.test((b.getAttribute('aria-label')||'')+' '+(b.getAttribute('data-testid')||'')+' '+(b.innerText||'')) && !b.disabled) ?? null; })()`, true, false);
 if (!send.result.objectId) throw new Error('send_button_not_found');

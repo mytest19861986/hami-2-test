@@ -35,6 +35,7 @@ model User {
   salesAttributionsAsCustomer SalesAttribution[]        @relation("SalesCustomer")
   commissions                 SalesCommission[]
   authorizationAuditEvents    AuthorizationAuditEvent[]
+  redemptionsAsCustomer       Redemption[]              @relation("RedemptionCustomer")
 }
 
 model UserProfile {
@@ -136,6 +137,7 @@ model Provider {
   doctorProfile DoctorProfile?
   memberships   ProviderMembership[]
   planBenefits  PlanProviderBenefit[]
+  redemptions   Redemption[]             @relation("RedemptionProvider")
 
   @@index([status, type, provinceId, cityId])
 }
@@ -193,6 +195,40 @@ enum BenefitMembershipStatus {
   ACTIVE
   EXPIRED
   CANCELLED
+}
+
+enum RedemptionStatus {
+  INITIATED
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+  REVERSED
+}
+
+model Redemption {
+  id                   String           @id @default(uuid())
+  customerUserId       String
+  providerId           String
+  benefitMembershipId  String?
+  idempotencyKey       String
+  verificationTokenHash String          @unique
+  status               RedemptionStatus @default(INITIATED)
+  benefitSnapshot      Json
+  tokenExpiresAt       DateTime
+  confirmedAt          DateTime?
+  cancelledAt          DateTime?
+  expiredAt            DateTime?
+  reversedAt           DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  customer             User             @relation("RedemptionCustomer", fields: [customerUserId], references: [id], onDelete: Restrict)
+  provider             Provider         @relation("RedemptionProvider", fields: [providerId], references: [id], onDelete: Restrict)
+  benefitMembership    BenefitMembership? @relation(fields: [benefitMembershipId], references: [id], onDelete: Restrict)
+
+  @@unique([customerUserId, idempotencyKey])
+  @@index([providerId, status, createdAt])
+  @@index([customerUserId, status, createdAt])
+  @@index([tokenExpiresAt, status])
 }
 
 model BenefitPlan {
@@ -264,6 +300,7 @@ model BenefitMembership {
   user       User                    @relation(fields: [userId], references: [id])
   plan       BenefitPlan             @relation(fields: [planId], references: [id])
   purchase   PlanPurchase            @relation(fields: [purchaseId], references: [id])
+  redemptions Redemption[]
 
   @@index([userId, status, endsAt])
 }
