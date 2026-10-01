@@ -66,6 +66,21 @@ test('dashboard summaries enforce authenticated access, role isolation, and read
   assert.equal(otherRepSummary.status, 200);
   const nonRep = await fetch(`${base}/rep/dashboard/summary`, { headers: { authorization: `Bearer ${customer.accessToken}` } });
   assert.equal(nonRep.status, 403);
+  await prisma.salesAttribution.create({ data: { salesPartnerUserId: representative.user.id, customerUserId: customer.user.id } });
+  await prisma.salesAttribution.create({ data: { salesPartnerUserId: otherRepresentative.user.id, customerUserId: otherCustomer.user.id } });
+  const reporting = await fetch(`${base}/rep/reporting/summary?period=7d`, { headers: { authorization: `Bearer ${representative.accessToken}` } });
+  assert.equal(reporting.status, 200);
+  const reportingPayload = await reporting.json();
+  assert.deepEqual(Object.keys(reportingPayload).sort(), ['period', 'reporting', 'surface'].sort());
+  assert.deepEqual(Object.keys(reportingPayload.reporting).sort(), ['attribution', 'commissions', 'purchases', 'unsupported_metrics'].sort());
+  assert.deepEqual(reportingPayload.reporting.purchases.created_timestamp, 'createdAt');
+  assert.deepEqual(reportingPayload.reporting.purchases.paid_timestamp, 'paidAt');
+  assert.deepEqual(reportingPayload.reporting.unsupported_metrics, ['active_customer_count', 'membership_activation_count', 'paid_commission']);
+  assert.equal(reportingPayload.reporting.attribution.active_count, 1);
+  const nonRepReporting = await fetch(`${base}/rep/reporting/summary`, { headers: { authorization: `Bearer ${customer.accessToken}` } });
+  assert.equal(nonRepReporting.status, 403);
+  const otherReporting = await fetch(`${base}/rep/reporting/summary`, { headers: { authorization: `Bearer ${otherRepresentative.accessToken}` } });
+  assert.equal((await otherReporting.json()).reporting.attribution.active_count, 1);
 
   const adminSummary = await fetch(`${base}/admin/dashboard/summary`, { headers: { authorization: `Bearer ${admin.accessToken}` } });
   assert.equal(adminSummary.status, 200);

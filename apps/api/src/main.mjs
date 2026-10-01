@@ -650,6 +650,55 @@ function dashboardMoney(amount, currency = 'IRR') {
 }
 
 class DashboardController {
+  async representativeReporting(req) {
+    const actor = await new AuthController().currentWithPermission(req, 'commissions.summary_read');
+    const period = ['7d', '30d', 'all'].includes(req.query?.period) ? req.query.period : 'all';
+    const since = period === 'all' ? undefined : new Date(Date.now() - Number(period.slice(0, -1)) * 86400000);
+    const createdAt = since ? { gte: since } : undefined;
+    const attributions = await prisma.salesAttribution.findMany({
+      where: { salesPartnerUserId: actor.id },
+      select: { customerUserId: true, status: true, createdAt: true },
+    });
+    const customerIds = attributions.map((row) => row.customerUserId);
+    const [commissions, createdPurchases, paidPurchases] = await Promise.all([
+      prisma.salesCommission.findMany({
+        where: { salesPartnerUserId: actor.id },
+        select: { amountSnapshot: true, currencySnapshot: true, status: true, createdAt: true, approvedAt: true, reversedAt: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      customerIds.length ? prisma.planPurchase.count({ where: { userId: { in: customerIds }, ...(createdAt ? { createdAt } : {}) } }) : 0,
+      customerIds.length ? prisma.planPurchase.count({ where: { userId: { in: customerIds }, status: 'PAID', ...(since ? { paidAt: { gte: since } } : { paidAt: { not: null } }) } }) : 0,
+    ]);
+    const scopedCommissions = createdAt ? commissions.filter((row) => row.createdAt >= since) : commissions;
+    const currencies = [...new Set(scopedCommissions.map((row) => row.currencySnapshot))].sort();
+    const groups = currencies.map((currency) => {
+      const rows = scopedCommissions.filter((row) => row.currencySnapshot === currency);
+      const sum = (statuses) => rows.filter((row) => statuses.includes(row.status)).reduce((total, row) => total + row.amountSnapshot, 0n);
+      return {
+        currency_code: currency,
+        states: Object.fromEntries(['PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'REVERSED'].map((status) => [status, dashboardMoney(sum([status]), currency)])),
+      };
+    });
+    return {
+      surface: 'representative',
+      period,
+      reporting: {
+        attribution: {
+          active_count: attributions.filter((row) => row.status === 'ACTIVE').length,
+          created_count: attributions.filter((row) => !createdAt || row.createdAt >= since).length,
+        },
+        purchases: {
+          created_count: createdPurchases,
+          paid_count: paidPurchases,
+          created_timestamp: 'createdAt',
+          paid_timestamp: 'paidAt',
+        },
+        commissions: { currency_groups: groups },
+        unsupported_metrics: ['active_customer_count', 'membership_activation_count', 'paid_commission'],
+      },
+    };
+  }
+
   async customerSummary(req) {
     const actor = await requireUser(req);
     const [memberships, purchases, wallet] = await Promise.all([
@@ -717,6 +766,7 @@ class DashboardController {
 }
 Get('customer/dashboard/summary')(DashboardController.prototype, 'customerSummary', Object.getOwnPropertyDescriptor(DashboardController.prototype, 'customerSummary')); Req()(DashboardController.prototype, 'customerSummary', 0);
 Get('rep/dashboard/summary')(DashboardController.prototype, 'representativeSummary', Object.getOwnPropertyDescriptor(DashboardController.prototype, 'representativeSummary')); Req()(DashboardController.prototype, 'representativeSummary', 0);
+Get('rep/reporting/summary')(DashboardController.prototype, 'representativeReporting', Object.getOwnPropertyDescriptor(DashboardController.prototype, 'representativeReporting')); Req()(DashboardController.prototype, 'representativeReporting', 0);
 Get('admin/dashboard/summary')(DashboardController.prototype, 'adminSummary', Object.getOwnPropertyDescriptor(DashboardController.prototype, 'adminSummary')); Req()(DashboardController.prototype, 'adminSummary', 0);
 Controller()(DashboardController);
 
