@@ -1,7 +1,5 @@
 # Next Steps
 
-1. Capture host/container npm registry, cache, DNS, proxy, and verbose-install evidence.
-2. Apply the smallest reversible installation fix supported by evidence.
-3. Install and run official Next.js/NestJS/Prisma tooling.
-4. Re-run lint, typecheck, tests, and both builds.
-5. Report complete evidence to the Commander for PASS/FAIL.
+1. Keep `FRONTEND-VISUAL-EVIDENCE-01` open until authenticated current-build desktop/mobile screenshots are captured.
+2. Maintain the accepted local/test-only regression baseline: API 106/106 and Web 51/51.
+3. Schedule the documented P2 frontend consistency cleanup; do not expand scope into payment, wallet, or production work.
