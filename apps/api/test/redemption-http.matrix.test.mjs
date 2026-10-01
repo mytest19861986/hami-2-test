@@ -1,0 +1,82 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+const base = 'http://127.0.0.1:4000/api/v1';
+const password = 'TEMP-Redemption-HTTP-2026!';
+
+async function register(phone) {
+  const request = await fetch(`${base}/auth/register/request-otp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone }) });
+  const { devCode } = await request.json();
+  await fetch(`${base}/auth/register/verify-otp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone, code: devCode }) });
+  await fetch(`${base}/auth/register/set-password`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone, password }) });
+  const login = await fetch(`${base}/auth/login/password`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone, password }) });
+  assert.equal(login.status, 201);
+  const tokens = await login.json();
+  const user = await fetch(`${base}/auth/me`, { headers: auth(tokens.accessToken) }).then((response) => response.json());
+  return { ...tokens, user };
+}
+const auth = (token) => ({ authorization: `Bearer ${token}` });
+const jsonAuth = (token, extra = {}) => ({ ...auth(token), 'content-type': 'application/json', ...extra });
+
+test('FW-02-R-WAVE-09 HTTP authorization, replay, races, expiry and financial isolation', async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const customerA = await register(`0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
+  const customerB = await register(`0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
+  const providerAUser = await register(`0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
+  const providerBUser = await register(`0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
+  const ordinaryAdmin = await register(`0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
+  const privilegedAdmin = await register(`0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
+  const [province, specialty] = await Promise.all([prisma.province.findFirstOrThrow(), prisma.medicalSpecialty.findFirstOrThrow()]);
+  const city = await prisma.city.findFirstOrThrow({ where: { provinceId: province.id } });
+  const providerA = await prisma.provider.create({ data: { type: 'DOCTOR', status: 'APPROVED', displayName: `HTTP Provider A ${suffix}`, provinceId: province.id, cityId: city.id, address: 'local', phone: '09120000000', memberships: { create: { userId: providerAUser.user.id, role: 'OWNER' } }, doctorProfile: { create: { medicalCouncilNumber: `HTTP-A-${suffix}`, specialtyId: specialty.id } } } });
+  const providerB = await prisma.provider.create({ data: { type: 'DOCTOR', status: 'APPROVED', displayName: `HTTP Provider B ${suffix}`, provinceId: province.id, cityId: city.id, address: 'local', phone: '09120000001', memberships: { create: { userId: providerBUser.user.id, role: 'OWNER' } }, doctorProfile: { create: { medicalCouncilNumber: `HTTP-B-${suffix}`, specialtyId: specialty.id } } } });
+  const plan = await prisma.benefitPlan.create({ data: { code: `HTTP-RED-${suffix}`, name: 'HTTP redemption matrix', priceAmount: 1000n, currency: 'IRR', validityDays: 30, status: 'ACTIVE' } });
+  const benefit = await prisma.planProviderBenefit.create({ data: { planId: plan.id, providerId: providerA.id, discountType: 'PERCENT', discountValue: 10 } });
+  const purchase = await prisma.planPurchase.create({ data: { userId: customerA.user.id, planId: plan.id, amountSnapshot: plan.priceAmount, currencySnapshot: plan.currency, validityDaysSnapshot: plan.validityDays, status: 'PAID', paidAt: new Date() } });
+  const membership = await prisma.benefitMembership.create({ data: { userId: customerA.user.id, planId: plan.id, purchaseId: purchase.id, status: 'ACTIVE', startsAt: new Date(Date.now() - 1000), endsAt: new Date(Date.now() + 86400000) } });
+  const superRole = await prisma.role.findUniqueOrThrow({ where: { name: 'SUPER_ADMIN' } });
+  await prisma.userRole.create({ data: { userId: privilegedAdmin.user.id, roleId: superRole.id } });
+
+  assert.equal((await fetch(`${base}/users/me/redemptions`)).status, 401);
+  const before = await prisma.$transaction([prisma.walletTransaction.count(), prisma.salesCommission.count(), prisma.withdrawalRequest.count(), prisma.planPurchase.count()]);
+  const key = `HTTP-IDEMP-${suffix}`;
+  const create = async (token, idempotencyKey = key, providerId = providerA.id) => fetch(`${base}/redemptions`, { method: 'POST', headers: jsonAuth(token, { 'idempotency-key': idempotencyKey }), body: JSON.stringify({ providerId, benefitMembershipId: membership.id }) });
+  const parallel = await Promise.all([create(customerA.accessToken), create(customerA.accessToken)]);
+  assert.equal(parallel.filter((r) => r.status === 201).length, 2);
+  const rows = await Promise.all(parallel.map((r) => r.json()));
+  assert.equal(new Set(rows.map((r) => r.id)).size, 1);
+  assert.ok(rows.every((r) => !('verificationTokenHash' in r)));
+  const id = rows[0].id;
+  const token = rows.find((r) => r.token)?.token;
+  assert.ok(token);
+  assert.equal((await create(customerA.accessToken, key, providerB.id)).status, 409);
+  assert.equal((await fetch(`${base}/redemptions/${id}`, { headers: auth(customerB.accessToken) })).status, 403);
+  assert.equal((await fetch(`${base}/redemptions/${id}/cancel`, { method: 'POST', headers: auth(customerB.accessToken) })).status, 403);
+  assert.equal((await fetch(`${base}/providers/me/redemptions/confirm`, { method: 'POST', headers: jsonAuth(providerBUser.accessToken), body: JSON.stringify({ token }) })).status, 400);
+  const confirmations = await Promise.all([providerAUser, providerAUser].map(() => fetch(`${base}/providers/me/redemptions/confirm`, { method: 'POST', headers: jsonAuth(providerAUser.accessToken), body: JSON.stringify({ token }) })));
+  assert.equal(confirmations.filter((r) => r.status === 201 || r.status === 200).length, 1);
+  assert.equal((await fetch(`${base}/providers/me/redemptions/confirm`, { method: 'POST', headers: jsonAuth(providerAUser.accessToken), body: JSON.stringify({ token }) })).status, 201);
+  assert.equal((await fetch(`${base}/redemptions/${id}/cancel`, { method: 'POST', headers: auth(customerA.accessToken) })).status, 400);
+  assert.equal((await fetch(`${base}/admin/redemptions/${id}/reverse`, { method: 'POST', headers: jsonAuth(ordinaryAdmin.accessToken), body: JSON.stringify({ reason: 'review' }) })).status, 403);
+  assert.equal((await fetch(`${base}/admin/redemptions/${id}/reverse`, { method: 'POST', headers: jsonAuth(privilegedAdmin.accessToken), body: JSON.stringify({ reason: 'review' }) })).status, 201);
+  assert.equal((await fetch(`${base}/providers/me/redemptions/confirm`, { method: 'POST', headers: jsonAuth(providerAUser.accessToken), body: JSON.stringify({ token }) })).status, 400);
+  const wrongToken = await create(customerA.accessToken, `HTTP-WRONG-${suffix}`).then((response) => response.json());
+  assert.equal((await fetch(`${base}/providers/me/redemptions/confirm`, { method: 'POST', headers: jsonAuth(providerAUser.accessToken), body: JSON.stringify({ token: 'wrong-token' }) })).status, 400);
+  await prisma.redemption.update({ where: { id: wrongToken.id }, data: { tokenExpiresAt: new Date(Date.now() - 1000) } });
+  assert.equal((await fetch(`${base}/providers/me/redemptions/confirm`, { method: 'POST', headers: jsonAuth(providerAUser.accessToken), body: JSON.stringify({ token: wrongToken.token }) })).status, 400);
+  const invalidated = await create(customerA.accessToken, `HTTP-INVALIDATED-${suffix}`).then((response) => response.json());
+  await prisma.benefitMembership.update({ where: { id: membership.id }, data: { status: 'CANCELLED' } });
+  assert.equal((await fetch(`${base}/providers/me/redemptions/confirm`, { method: 'POST', headers: jsonAuth(providerAUser.accessToken), body: JSON.stringify({ token: invalidated.token }) })).status, 400);
+  await prisma.benefitMembership.update({ where: { id: membership.id }, data: { status: 'ACTIVE' } });
+  const suspended = await create(customerA.accessToken, `HTTP-SUSPENDED-${suffix}`).then((response) => response.json());
+  await prisma.provider.update({ where: { id: providerA.id }, data: { status: 'SUSPENDED' } });
+  assert.equal([400, 403].includes((await fetch(`${base}/providers/me/redemptions/confirm`, { method: 'POST', headers: jsonAuth(providerAUser.accessToken), body: JSON.stringify({ token: suspended.token }) })).status), true);
+  await prisma.provider.update({ where: { id: providerA.id }, data: { status: 'APPROVED' } });
+  const after = await prisma.$transaction([prisma.walletTransaction.count(), prisma.salesCommission.count(), prisma.withdrawalRequest.count(), prisma.planPurchase.count()]);
+  assert.deepEqual(after, before);
+  const stored = await prisma.redemption.findUniqueOrThrow({ where: { id } });
+  assert.equal(stored.verificationTokenHash.includes(token), false);
+  assert.equal(JSON.stringify(stored).includes(token), false);
+});
