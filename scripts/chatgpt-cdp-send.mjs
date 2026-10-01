@@ -10,7 +10,7 @@ const matcher = args.find((a) => a.startsWith('--url='))?.slice(6) ?? '';
 const targetHost = args.find((a) => a.startsWith('--host='))?.slice(7) ?? 'chatgpt';
 
 const targets = await (await fetch(endpoint)).json();
-const hostPattern = targetHost === 'gemini' ? /gemini\.google\.com/i : /chatgpt\.com|chat\.openai\.com/i;
+const hostPattern = targetHost === 'gemini' ? /gemini\.google\.com/i : targetHost === 'qwen' ? /chat\.qwen\.ai/i : /chatgpt\.com|chat\.openai\.com/i;
 const target = targets.find((t) => t.type === 'page' && hostPattern.test(t.url) && (!matcher || t.url.includes(matcher)));
 if (!target) throw new Error('target_not_found');
 
