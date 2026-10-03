@@ -1,6 +1,6 @@
 # FW-02-R-WAVE-PURCHASE-ACTIVATION-CONTRACT-HARDENING-32
 
-**Status:** Source inventory complete; target contract proposed/frozen for Wave 33 planning, subject to the explicit owner decision in §13.
+**Status:** Source inventory and contract complete; Commander decisions resolved; Wave 32 frozen and Wave 33 authorized.
 **Type:** Product / business-critical decision gate
 **Environment:** LOCAL / TEST ONLY
 **Implementation in this wave:** None
@@ -176,10 +176,12 @@ and surface the case for reconciliation.
   Set `startsAt` to the activation decision time and `endsAt` from the
   purchase’s immutable `validityDaysSnapshot`; do not recalculate the price,
   currency, or validity from a mutable plan.
-- A denial transitions `PENDING -> REJECTED`, grants no entitlement, records a
-  fixed reason code, and raises/retains a refund/reconciliation work item.
-  Do not automatically call an unconfigured provider or claim an external
-  refund. Final money-return semantics require the owner decision in §13.
+- A denial transitions `PENDING -> REJECTED`, grants no entitlement, and
+  requires a fixed reason code. The purchase remains `PAID`; rejection is not a
+  refund. The Admin queue must surface `PAID + REJECTED` for separate
+  reconciliation/refund handling. Do not automatically refund or claim
+  external money movement. Only an authoritative refund outcome may move the
+  purchase to `REFUNDED` or trigger linked reversals.
 
 ### Auto-activation
 
@@ -213,19 +215,18 @@ rows before relying on a global safety switch.
 |---|---|
 | Confirm payment | Existing `purchases.confirm_payment`; does not imply membership approval |
 | Approve membership | New least-privilege `memberships.approve` capability |
-| Reject membership | New least-privilege `memberships.reject` capability |
+| Reject membership | New least-privilege `memberships.reject` capability; fixed reason required |
 | Read membership queue | Existing `memberships.read` |
 | Change auto-activation | Existing `commercial_settings.manage` |
 | Read auto-activation | Existing `commercial_settings.read` |
 | Refund/reconcile | Existing `purchases.refund` only for its documented internal transition; external refund proof remains absent |
 
-No wildcard grant or implicit role assignment is authorized by this contract.
-Wave 33 must document explicit role-to-capability grants and verify that
-non-admin/support/compliance roles remain least-privileged. The current seed
-grants all seeded permissions to `SUPER_ADMIN`; this does not establish a
-dedicated approver role or maker-checker separation. Whether the payment
-confirmer and membership approver must be different people is an owner decision,
-not a current system guarantee.
+The same Admin may confirm payment and approve/reject activation. Maker-checker
+is not required. These remain distinct explicit actions with independent
+authorization checks and audit events; confirming payment never implies
+approval. No wildcard grant or implicit role assignment is authorized beyond
+the repository's existing `SUPER_ADMIN` policy. Wave 33 must explicitly verify
+that non-admin/support/compliance roles remain least-privileged.
 
 ## 5. Concurrency, idempotency, and transaction boundary
 
@@ -377,10 +378,10 @@ data cleanup is authorized by this document.
    client intent needs an idempotency key without merging separate intentional
    purchases.
 
-## 12. Open contract decisions
+## 12. Frozen contract decisions
 
-The recommendations in this document are safe planning defaults, not evidence
-that the current product or code already implements them:
+The following decisions were confirmed by Commander on 2026-10-03. They describe
+the target contract; they do not claim that current code already implements it:
 
 - Global auto-activation setting in `CommercialSettings`, default OFF; no
   plan-specific override.
@@ -388,26 +389,36 @@ that the current product or code already implements them:
   of whether access is pending.
 - Disabled customer/plan means no activation and a review queue; never silently
   rewrite `PAID` or automatically refund.
-- Rejection must deny access and retain the payment fact until an authorized
-  refund/reconciliation result is recorded.
+- On rejection, deny access, require a reason, retain `PAID`, and surface the
+  item in a separate reconciliation/refund queue. No automatic refund. Only an
+  authoritative refund outcome can transition to `REFUNDED` and trigger
+  permitted linked reversals. Preserve the original payment audit.
+- The same Admin may perform both payment confirmation and activation decision;
+  each is a separate action and audit event. Maker-checker is not required.
 - Automatic mode applies only at the atomic payment-confirmation decision;
   toggles do not retroactively activate or deactivate existing memberships.
 
-## 13. Commander decision required before Wave 33
+## 13. Commander decisions and implementation authorization
 
-The current repository cannot establish the business outcome for a paid
-purchase whose membership approval is rejected, and it has no verified external
-refund mechanism. Please choose/authorize one policy before implementation:
+Commander resolved both decisions:
 
-**Recommended:** keep the purchase `PAID`, mark membership `REJECTED`, deny all
-benefits, and open a refund/reconciliation case; only transition to `REFUNDED`
-and reverse linked financial effects after an authorized refund result is
-recorded. If no external provider is integrated, the permitted local/test
-operator attestation and evidence required for that result must be specified.
+1. **Paid purchase rejected for activation:** retain payment status `PAID`, set
+   activation `REJECTED`, deny access, require a reason, and use a separate
+   reconciliation/refund flow. No automatic refund. Only an authoritative
+   refund result may set `REFUNDED` or cause linked reversals. `REJECTED` is not
+   `REFUNDED`; `REFUND_REQUESTED` is not `REFUNDED`.
+2. **Maker-checker:** same Admin is allowed to confirm payment and decide
+   activation. The payment and activation actions remain separate, each with
+   its own permission check and audit event; no implicit approval.
 
-Also decide whether the same Admin may both confirm payment and approve the
-membership, or whether maker-checker separation is required. Current code does
-not enforce separation.
+Commander issued **GO for Wave 33** and authorized an additive,
+non-destructive schema/migration if required by this contract. Wave 33 may
+implement the pending-approval lifecycle, reasoned Admin approve/reject,
+`AUTO_ACTIVATION` default OFF, atomic/idempotent side effects, and state-backed
+Customer/Admin UI. No automatic refund, invented financial state, silent
+reversal, or production action is authorized. The existing payment-provider
+boundary remains unconfigured; this work must not imply real provider evidence
+or real-money movement.
 
 ## 14. Wave 32 closure record
 
@@ -415,6 +426,7 @@ not enforce separation.
 - Implementation/schema/API/UI changes: none (hard lock honored).
 - Tests: existing tests inspected as evidence; no test suite altered or claimed
   as newly run for this documentation-only wave.
-- `git diff --check`, commit, push, and final working-tree evidence: record at
-  closure after review.
+- Commander business decisions: resolved; Wave 33 authorized.
+- Wave 32 contract commit/push and clean-tree evidence: recorded in Git history;
+  decision addendum is committed with this follow-up.
 - Production: NONE / LOCKED / NO-GO.
