@@ -1,9 +1,9 @@
 # FW-02-R-WAVE-PURCHASE-ACTIVATION-CONTRACT-HARDENING-32
 
-**Status:** Source inventory complete; target contract proposed/frozen for Wave 33 planning, subject to the explicit owner decision in §13.  
-**Type:** Product / business-critical decision gate  
-**Environment:** LOCAL / TEST ONLY  
-**Implementation in this wave:** None  
+**Status:** Source inventory complete; target contract proposed/frozen for Wave 33 planning, subject to the explicit owner decision in §13.
+**Type:** Product / business-critical decision gate
+**Environment:** LOCAL / TEST ONLY
+**Implementation in this wave:** None
 **Production:** LOCKED / NO-GO
 
 ## 1. Scope and method
