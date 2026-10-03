@@ -137,7 +137,7 @@ model Provider {
   doctorProfile DoctorProfile?
   memberships   ProviderMembership[]
   planBenefits  PlanProviderBenefit[]
-  redemptions   Redemption[]             @relation("RedemptionProvider")
+  redemptions   Redemption[]          @relation("RedemptionProvider")
 
   @@index([status, type, provinceId, cityId])
 }
@@ -195,6 +195,12 @@ enum BenefitMembershipStatus {
   ACTIVE
   EXPIRED
   CANCELLED
+  REJECTED
+}
+
+enum ActivationMode {
+  MANUAL
+  AUTO
 }
 
 enum RedemptionStatus {
@@ -206,24 +212,24 @@ enum RedemptionStatus {
 }
 
 model Redemption {
-  id                   String           @id @default(uuid())
-  customerUserId       String
-  providerId           String
-  benefitMembershipId  String?
-  idempotencyKey       String
-  verificationTokenHash String          @unique
-  status               RedemptionStatus @default(INITIATED)
-  benefitSnapshot      Json
-  tokenExpiresAt       DateTime
-  confirmedAt          DateTime?
-  cancelledAt          DateTime?
-  expiredAt            DateTime?
-  reversedAt           DateTime?
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
-  customer             User             @relation("RedemptionCustomer", fields: [customerUserId], references: [id], onDelete: Restrict)
-  provider             Provider         @relation("RedemptionProvider", fields: [providerId], references: [id], onDelete: Restrict)
-  benefitMembership    BenefitMembership? @relation(fields: [benefitMembershipId], references: [id], onDelete: Restrict)
+  id                    String             @id @default(uuid())
+  customerUserId        String
+  providerId            String
+  benefitMembershipId   String?
+  idempotencyKey        String
+  verificationTokenHash String             @unique
+  status                RedemptionStatus   @default(INITIATED)
+  benefitSnapshot       Json
+  tokenExpiresAt        DateTime
+  confirmedAt           DateTime?
+  cancelledAt           DateTime?
+  expiredAt             DateTime?
+  reversedAt            DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  customer              User               @relation("RedemptionCustomer", fields: [customerUserId], references: [id], onDelete: Restrict)
+  provider              Provider           @relation("RedemptionProvider", fields: [providerId], references: [id], onDelete: Restrict)
+  benefitMembership     BenefitMembership? @relation(fields: [benefitMembershipId], references: [id], onDelete: Restrict)
 
   @@unique([customerUserId, idempotencyKey])
   @@index([providerId, status, createdAt])
@@ -275,6 +281,9 @@ model PlanPurchase {
   status                PurchaseStatus       @default(PENDING_PAYMENT)
   paymentReference      String?              @unique
   paidAt                DateTime?
+  refundReference       String?              @unique
+  refundedAt            DateTime?
+  refundedByUserId      String?
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   user                  User                 @relation(fields: [userId], references: [id])
@@ -288,19 +297,24 @@ model PlanPurchase {
 }
 
 model BenefitMembership {
-  id         String                  @id @default(uuid())
-  userId     String
-  planId     String
-  purchaseId String                  @unique
-  status     BenefitMembershipStatus @default(PENDING)
-  startsAt   DateTime?
-  endsAt     DateTime?
-  createdAt  DateTime                @default(now())
-  updatedAt  DateTime                @updatedAt
-  user       User                    @relation(fields: [userId], references: [id])
-  plan       BenefitPlan             @relation(fields: [planId], references: [id])
-  purchase   PlanPurchase            @relation(fields: [purchaseId], references: [id])
-  redemptions Redemption[]
+  id                       String                  @id @default(uuid())
+  userId                   String
+  planId                   String
+  purchaseId               String                  @unique
+  status                   BenefitMembershipStatus @default(PENDING)
+  startsAt                 DateTime?
+  endsAt                   DateTime?
+  activationMode           ActivationMode?
+  decisionAt               DateTime?
+  decisionByUserId         String?
+  decisionReasonCode       String?
+  activationHoldReasonCode String?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  user                     User                    @relation(fields: [userId], references: [id])
+  plan                     BenefitPlan             @relation(fields: [planId], references: [id])
+  purchase                 PlanPurchase            @relation(fields: [purchaseId], references: [id])
+  redemptions              Redemption[]
 
   @@index([userId, status, endsAt])
 }
@@ -555,6 +569,7 @@ model CommercialSettings {
   withdrawalsEnabled                Boolean  @default(false)
   salesCommissionEnabled            Boolean  @default(false)
   autoApproveCommissionAfterPayment Boolean  @default(false)
+  autoActivatePaidPurchases         Boolean  @default(false)
   updatedAt                         DateTime @updatedAt
 }
 
@@ -699,12 +714,17 @@ model RolePermission {
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  actorUserId String?
-  action      String
-  entity      String
-  createdAt   DateTime @default(now())
-  user        User?    @relation(fields: [actorUserId], references: [id])
+  id             String   @id @default(uuid())
+  actorUserId    String?
+  action         String
+  entity         String
+  entityId       String?
+  metadata       Json?
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
+  user           User?    @relation(fields: [actorUserId], references: [id])
+
+  @@index([entity, entityId, createdAt])
 }
 
 model AuthorizationAuditEvent {

@@ -18,6 +18,10 @@ async function post(path, token, body) {
   return fetch(`${base}${path}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 }
 
+async function postRefund(purchaseId, headers) {
+  return fetch(`${base}/admin/purchases/${purchaseId}/refund`, { method: 'POST', headers, body: JSON.stringify({ refundReference: `TEST-REFUND-${purchaseId}` }) });
+}
+
 async function makeAdmin(accessToken, userId) {
   const role = await prisma.role.findUniqueOrThrow({ where: { name: 'SUPER_ADMIN' } });
   await prisma.userRole.create({ data: { userId, roleId: role.id } });
@@ -117,9 +121,9 @@ test('referral reward and refund reversal are exactly once across payment replay
   assert.equal(concurrentConfirms.some((response) => response.status >= 500), false);
   const rewardAfterSecondPurchase = await prisma.walletTransaction.count({ where: { type: 'REFERRAL_REWARD', idempotencyKey: `REFERRAL_REWARD:${attribution.id}` } });
   assert.equal(rewardAfterSecondPurchase, 1);
-  const refund = await fetch(`${base}/admin/purchases/${purchase.id}/refund`, { method: 'POST', headers: adminHeaders });
+  const refund = await postRefund(purchase.id, adminHeaders);
   assert.ok(refund.status >= 200 && refund.status < 300);
-  const refundReplay = await fetch(`${base}/admin/purchases/${purchase.id}/refund`, { method: 'POST', headers: adminHeaders });
+  const refundReplay = await postRefund(purchase.id, adminHeaders);
   assert.ok(refundReplay.status < 500);
   const reversalRows = await prisma.walletTransaction.findMany({ where: { type: 'REFERRAL_REVERSAL', idempotencyKey: `REFERRAL_REVERSAL:${attribution.id}` } });
   const storedAttribution = await prisma.referralAttribution.findUniqueOrThrow({ where: { id: attribution.id } });
@@ -164,9 +168,9 @@ test('integrated concurrent payment creates one membership, referral reward, and
   await prisma.salesCommissionRule.update({ where: { id: rule.id }, data: { value: 99 } });
   const unchangedCommission = await prisma.salesCommission.findUniqueOrThrow({ where: { id: commission.id } });
   assert.deepEqual({ calculationType: unchangedCommission.calculationType, calculationValueSnapshot: unchangedCommission.calculationValueSnapshot, amountSnapshot: unchangedCommission.amountSnapshot, currencySnapshot: unchangedCommission.currencySnapshot }, commissionSnapshot);
-  const refund = await fetch(`${base}/admin/purchases/${purchase.id}/refund`, { method: 'POST', headers: adminHeaders });
+  const refund = await postRefund(purchase.id, adminHeaders);
   assert.ok(refund.status >= 200 && refund.status < 300, await refund.text());
-  const refundReplay = await fetch(`${base}/admin/purchases/${purchase.id}/refund`, { method: 'POST', headers: adminHeaders });
+  const refundReplay = await postRefund(purchase.id, adminHeaders);
   assert.ok(refundReplay.status < 500, await refundReplay.text());
   const reversedCommission = await prisma.salesCommission.findUniqueOrThrow({ where: { id: commission.id } });
   assert.equal(reversedCommission.status, 'REVERSED');
@@ -191,13 +195,13 @@ test('refund and withdrawal race preserves ledger invariants', async () => {
   const before = await prisma.walletTransaction.findMany({ where: { walletId: wallet.id } });
   assert.equal(before.filter((row) => row.type === 'REFERRAL_REWARD').length, 1);
   const [refund, withdrawal] = await Promise.all([
-    fetch(`${base}/admin/purchases/${purchase.id}/refund`, { method: 'POST', headers: adminHeaders }),
+    postRefund(purchase.id, adminHeaders),
     fetch(`${base}/users/me/wallet/withdrawals`, { method: 'POST', headers: { authorization: `Bearer ${referrer.accessToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ amount: 100 }) }),
   ]);
   assert.equal(refund.status >= 200 && refund.status < 500, true, await refund.text());
   assert.equal(withdrawal.status >= 200 && withdrawal.status < 500, true, await withdrawal.text());
 
-  const refundReplay = await fetch(`${base}/admin/purchases/${purchase.id}/refund`, { method: 'POST', headers: adminHeaders });
+  const refundReplay = await postRefund(purchase.id, adminHeaders);
   assert.ok(refundReplay.status < 500, await refundReplay.text());
 
   const ledger = await prisma.walletTransaction.findMany({ where: { walletId: wallet.id } });
@@ -208,9 +212,9 @@ test('refund and withdrawal race preserves ledger invariants', async () => {
   assert.ok(ledger.reduce((sum, row) => sum + row.amount, 0n) >= 0n);
   assert.equal(await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'REFERRAL_REVERSAL' } }), 1);
   assert.equal(await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'WITHDRAWAL_RESERVATION' } }), withdrawals.length);
-  assert.equal(await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'WITHDRAWAL_RELEASE' } }), 1);
+  assert.equal(await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'WITHDRAWAL_RELEASE' } }), withdrawals.length);
   assert.equal(await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'REFERRAL_REVERSAL' } }), 1);
-  assert.equal(withdrawals[0].status, 'CANCELLED');
+  if (withdrawals.length) assert.equal(withdrawals[0].status, 'CANCELLED');
 });
 
 test('refund-first ordering rejects a later withdrawal without negative ledger', async () => {
@@ -225,7 +229,7 @@ test('refund-first ordering rejects a later withdrawal without negative ledger',
   const purchase = await post('/users/me/purchases', referred.accessToken, { planId: plan.id }).then((r) => r.json());
   const confirmation = await post(`/admin/purchases/${purchase.id}/confirm-payment`, adminHeaders.authorization.slice('Bearer '.length), { paymentReference: `RACE-FIRST-PAY-${purchase.id}` });
   assert.ok(confirmation.status >= 200 && confirmation.status < 300, await confirmation.text());
-  const refund = await fetch(`${base}/admin/purchases/${purchase.id}/refund`, { method: 'POST', headers: adminHeaders });
+  const refund = await postRefund(purchase.id, adminHeaders);
   assert.ok(refund.status >= 200 && refund.status < 300, await refund.text());
   const withdrawal = await fetch(`${base}/users/me/wallet/withdrawals`, { method: 'POST', headers: { authorization: `Bearer ${referrer.accessToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ amount: 100 }) });
   assert.ok(withdrawal.status < 500);

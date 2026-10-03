@@ -37,7 +37,7 @@ test('HTTP concurrent payment confirmation creates one membership and preserves 
   assert.equal(membershipCount, 1);
 });
 
-test('Wave 06 plan purchase uses active catalog, server snapshots, and activates entitlement after confirmation', async () => {
+test('Wave 33 payment confirmation records PAID but leaves activation pending by default', async () => {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const accessToken = await register(`0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
   const me = await fetch(`${base}/auth/me`, { headers: { authorization: `Bearer ${accessToken}` } }).then((r) => r.json());
@@ -65,9 +65,53 @@ test('Wave 06 plan purchase uses active catalog, server snapshots, and activates
   const stored = await prisma.planPurchase.findUniqueOrThrow({ where: { id: created.id } });
   const membership = await prisma.benefitMembership.findUniqueOrThrow({ where: { purchaseId: created.id } });
   assert.equal(stored.status, 'PAID');
-  assert.equal(membership.status, 'ACTIVE');
+  assert.equal(membership.status, 'PENDING');
+  assert.equal(membership.activationMode, 'MANUAL');
+  assert.equal(membership.startsAt, null);
   assert.equal(membership.userId, me.id);
   assert.equal(membership.planId, active.id);
+  const mismatchedReplay = await fetch(`${base}/admin/purchases/${created.id}/confirm-payment`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ paymentReference: `DIFFERENT-${suffix}` }) });
+  assert.equal(mismatchedReplay.status, 409);
+  const rejectedWithoutReason = await fetch(`${base}/admin/memberships/${membership.id}/reject`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(rejectedWithoutReason.status, 400);
+  const approved = await fetch(`${base}/admin/memberships/${membership.id}/approve`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(approved.status, 201);
+  const activeMembership = await prisma.benefitMembership.findUniqueOrThrow({ where: { id: membership.id } });
+  assert.equal(activeMembership.status, 'ACTIVE');
+  assert.equal(activeMembership.decisionByUserId, me.id);
+  assert.ok(activeMembership.startsAt instanceof Date);
+  const rejectedPurchase = await fetch(`${base}/users/me/purchases`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ planId: active.id }) }).then((response) => response.json());
+  await fetch(`${base}/admin/purchases/${rejectedPurchase.id}/confirm-payment`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ paymentReference: `REJECT-PAY-${suffix}` }) });
+  const rejectedMembership = await prisma.benefitMembership.findUniqueOrThrow({ where: { purchaseId: rejectedPurchase.id } });
+  const rejection = await fetch(`${base}/admin/memberships/${rejectedMembership.id}/reject`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ reasonCode: 'DOCUMENTS_INVALID' }) });
+  assert.equal(rejection.status, 201);
+  assert.equal((await prisma.benefitMembership.findUniqueOrThrow({ where: { id: rejectedMembership.id } })).status, 'REJECTED');
+  assert.equal((await prisma.planPurchase.findUniqueOrThrow({ where: { id: rejectedPurchase.id } })).status, 'PAID');
+  assert.equal(await prisma.auditLog.count({ where: { entity: 'BenefitMembership', entityId: rejectedMembership.id, action: 'MEMBERSHIP_REJECTED' } }), 1);
+});
+
+test('Wave 33 AUTO activation is opt-in and bounded by active user and plan guards', async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const accessToken = await register(`0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
+  const me = await fetch(`${base}/auth/me`, { headers: { authorization: `Bearer ${accessToken}` } }).then((response) => response.json());
+  const role = await prisma.role.findUniqueOrThrow({ where: { name: 'SUPER_ADMIN' } });
+  await prisma.userRole.create({ data: { userId: me.id, roleId: role.id } });
+  const setting = await prisma.commercialSettings.findFirstOrThrow();
+  await prisma.commercialSettings.update({ where: { id: setting.id }, data: { autoActivatePaidPurchases: true } });
+  try {
+    const plan = await prisma.benefitPlan.create({ data: { code: `W33-AUTO-${suffix}`, name: 'Wave 33 auto activation', priceAmount: 1250n, currency: 'IRR', validityDays: 9, status: 'ACTIVE' } });
+    const purchase = await fetch(`${base}/users/me/purchases`, { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ planId: plan.id }) }).then((response) => response.json());
+    const paid = await fetch(`${base}/admin/purchases/${purchase.id}/confirm-payment`, { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ paymentReference: `W33-AUTO-${suffix}` }) });
+    assert.equal(paid.status, 201);
+    const membership = await prisma.benefitMembership.findUniqueOrThrow({ where: { purchaseId: purchase.id } });
+    assert.equal(membership.status, 'ACTIVE');
+    assert.equal(membership.activationMode, 'AUTO');
+    assert.equal(membership.decisionReasonCode, 'AUTO_POLICY');
+    assert.equal(membership.decisionByUserId, null);
+    assert.equal(membership.endsAt.getTime() - membership.startsAt.getTime(), 9 * 86400000);
+  } finally {
+    await prisma.commercialSettings.update({ where: { id: setting.id }, data: { autoActivatePaidPurchases: setting.autoActivatePaidPurchases } });
+  }
 });
 
 test('Wave 06 authorization, replay, and cancelled-state matrix fails closed', async () => {

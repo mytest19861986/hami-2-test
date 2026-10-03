@@ -430,3 +430,53 @@ or real-money movement.
 - Wave 32 contract commit/push and clean-tree evidence: recorded in Git history;
   decision addendum is committed with this follow-up.
 - Production: NONE / LOCKED / NO-GO.
+
+## 15. Wave 33 implementation evidence (2026-10-03)
+
+Wave 33 implemented the authorized contract locally, without production access:
+
+- Additive migration `0023_purchase_activation_contract` adds `REJECTED`,
+  `ActivationMode`, default-off `autoActivatePaidPurchases`, decision/refund
+  evidence fields, and audit entity/metadata/idempotency fields. It does not
+  rewrite existing rows or alter migration history.
+- Payment confirmation now requires a stable payment reference, atomically
+  records `PAID`, creates exactly one pending membership by default, and
+  preserves existing referral reward and commission behavior. Exact-reference
+  replay is stable; a conflicting replay returns conflict. The optional AUTO
+  setting is opt-in and activates only for an active customer and active plan.
+  It is evaluated at confirmation time only.
+- Admin membership approve/reject are separately permission-gated and audited.
+  Approval requires the paid purchase plus active customer/plan and starts the
+  validity window from the approval instant. Rejection requires a bounded
+  reason code, keeps the purchase `PAID`, denies access, and does not refund.
+- Refund requires an operator-supplied reference attesting the external refund
+  outcome. There is no provider verification/integration; this is not proof
+  supplied by a payment vendor. Same-reference replay is stable, linked wallet
+  and commission reversals remain idempotent, and the reference is fingerprinted
+  in audit metadata rather than copied into logs. No real-money action occurred.
+- Customer purchase views distinguish payment from activation. Admin views show
+  rejected paid purchases as a reconciliation/refund follow-up; no automatic
+  refund control was added.
+- A concurrency regression exposed a read-snapshot issue when the refund
+  transaction used SERIALIZABLE isolation after reading the purchase but before
+  waiting on a wallet advisory lock. Refund now relies on the existing wallet
+  lock plus conditional state update under PostgreSQL READ COMMITTED so a
+  post-lock ledger read sees a committed concurrent reservation. The race test
+  accepts either safe serial outcome and asserts a non-negative ledger and
+  exactly-once reversal behavior.
+
+Verification evidence:
+
+- Prisma format/validate/generate: PASS.
+- API lint/typecheck: PASS.
+- Web lint/typecheck/build: PASS; Web tests: 59/59 PASS after adding the
+  payment/activation separation contract assertion.
+- Upgrade migration applied successfully to the isolated
+  `hami_wave31a_test` database only; test API health returned 200.
+- Purchase and financial integration subset: 13/13 PASS.
+- Full API regression in the isolated test container, serial concurrency:
+  107/107 PASS.
+- A preliminary host-side API test run was invalid because local `DATABASE_URL`
+  referenced unavailable `db:5432`; it did not touch a database. The canonical
+  container run above used `wave31a-db/hami_wave31a_test`.
+- Production: NONE / LOCKED / NO-GO.

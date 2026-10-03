@@ -1,7 +1,7 @@
 const transitions = {
   plan: { DRAFT: ['ACTIVE'], ACTIVE: ['INACTIVE', 'ARCHIVED'], INACTIVE: ['ACTIVE', 'ARCHIVED'], ARCHIVED: [] },
   purchase: { PENDING_PAYMENT: ['PAID', 'CANCELLED'], PAID: ['REFUNDED'], CANCELLED: [], REFUNDED: [] },
-  membership: { PENDING: ['ACTIVE'], ACTIVE: ['EXPIRED', 'CANCELLED'], EXPIRED: [], CANCELLED: [] },
+  membership: { PENDING: ['ACTIVE', 'REJECTED'], ACTIVE: ['EXPIRED', 'CANCELLED'], REJECTED: ['CANCELLED'], EXPIRED: [], CANCELLED: [] },
 };
 
 export function assertTransition(kind, from, to) {

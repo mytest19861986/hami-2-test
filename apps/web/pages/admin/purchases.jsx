@@ -10,6 +10,8 @@ export default function AdminPurchases() {
       <h2>{formatMoney(purchase.amountSnapshot, purchase.currencySnapshot)}</h2>
       <p>شناسه طرح: <bdi dir="ltr">{purchase.planId}</bdi></p>
       <p>وضعیت: {labelStatus(purchase.status)}</p>
+      <p>وضعیت فعال‌سازی: {labelStatus(purchase.activationStatus)}</p>
+      {purchase.status === 'PAID' && purchase.activationStatus === 'REJECTED' && <p role="status">نیازمند پیگیری تطبیق/بازپرداخت مستقل؛ این صفحه بازپرداختی انجام نمی‌دهد.</p>}
       <p>اعتبار: {purchase.validityDaysSnapshot} روز</p>
       <small>{purchase.createdAt ? new Date(purchase.createdAt).toLocaleString('fa-IR') : '—'}</small>
     </li>)}</ul>}

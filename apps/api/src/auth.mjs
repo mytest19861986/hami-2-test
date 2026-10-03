@@ -249,6 +249,10 @@ export async function purgeSessionFamilyData(now = new Date()) {
   return { removedGenerations: removedGenerations.count, removedFamilies: removedFamilies.count };
 }
 
-export async function audit(actorUserId, action, entity) {
-  return prisma.auditLog.create({ data: { actorUserId, action, entity } });
+export async function audit(actorUserId, action, entity, details = {}, db = prisma) {
+  const data = { actorUserId, action, entity };
+  if (details.entityId !== undefined) data.entityId = details.entityId;
+  if (details.metadata !== undefined) data.metadata = details.metadata;
+  if (details.idempotencyKey !== undefined) data.idempotencyKey = details.idempotencyKey;
+  return db.auditLog.create({ data });
 }
