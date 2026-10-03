@@ -62,3 +62,8 @@ export function createApiClient({ getSession, setSession, clearSession, fetchImp
 }
 
 export function can(session, permission) { return Boolean(session?.permissions?.includes(permission)); }
+
+export function revokeCurrentSession(session, fetchImpl) {
+  const api = createApiClient({ getSession: () => session, fetchImpl });
+  return api.post('/auth/logout', session?.sessionId ? { sessionId: session.sessionId } : {});
+}

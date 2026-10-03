@@ -7,7 +7,7 @@ const read = (file) => fs.readFileSync(new URL(file, root), 'utf8');
 
 test('B5 real wallet and referral routes are exposed without fabricated detail route', () => {
   const shell = read('components/user-shell.jsx');
-  assert.match(shell, /href="\/wallet"/); assert.match(shell, /href="\/referrals"/);
+  assert.match(shell, /AuthenticatedShell/); assert.match(shell, /'\/wallet'/); assert.match(shell, /'\/referrals'/);
   assert.ok(fs.existsSync(new URL('pages/wallet.jsx', root))); assert.ok(fs.existsSync(new URL('pages/referrals.jsx', root)));
   assert.ok(!fs.existsSync(new URL('pages/withdrawals/[id].jsx', root)));
 });

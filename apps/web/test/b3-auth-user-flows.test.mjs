@@ -37,6 +37,7 @@ test('B3 protected user flows use real profile and session endpoints', async () 
   const profile = await source('pages/profile.jsx');
   const shell = await source('components/user-shell.jsx');
   assert.match(profile, /users\/me\/profile/);
-  assert.match(shell, /auth\/logout/);
+  assert.match(shell, /revokeCurrentSession/);
+  assert.match(await source('lib/api-client.js'), /api\.post\('\/auth\/logout'/);
   assert.match(shell, /login/);
 });

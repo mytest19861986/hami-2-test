@@ -17,6 +17,7 @@ test('customer shell provides the approved portal navigation and cookie logout',
   const source = read('../components/user-shell.jsx');
   assert.match(source, /داشبورد/);
   assert.match(source, /کیف پول/);
-  assert.match(source, /auth\/logout/);
-  assert.match(source, /post\('\/auth\/logout'/);
+  assert.match(source, /revokeCurrentSession/);
+  const api = read('../lib/api-client.js');
+  assert.match(api, /api\.post\('\/auth\/logout'/);
 });

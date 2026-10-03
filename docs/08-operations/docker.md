@@ -1,5 +1,11 @@
 # Docker local runtime
 
+The root `docker-compose.yml` is a local/test development topology, not a
+production deployment manifest. Its `FRONTEND_ORIGIN` default matches the local
+Nginx URL (`http://localhost:8080`) and may be explicitly overridden. Production
+must supply its own reviewed origin and deployment configuration; this local
+default does not authorize production activation or relax exact-origin/CSRF checks.
+
 ## Dependency placement
 
 The API image is built from the repository root. `npm ci` runs during the image build using the root `package-lock.json`, so dependency installation is deterministic and independent of the Windows bind-mounted source filesystem.

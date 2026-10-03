@@ -7,6 +7,7 @@ COPY apps/web/pages apps/web/pages
 COPY apps/web/lib apps/web/lib
 COPY apps/web/components apps/web/components
 COPY apps/web/styles.css apps/web/styles.css
+COPY apps/web/public apps/web/public
 COPY apps/web/test apps/web/test
 COPY apps/web/tsconfig.json apps/web/tsconfig.json
 COPY scripts scripts

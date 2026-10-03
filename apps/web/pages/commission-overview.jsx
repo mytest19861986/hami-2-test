@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { UserShell } from '../components/user-shell';
 import { createApiClient } from '../lib/api-client';
 import { readSession } from '../lib/session';
+import { formatMoney } from '../lib/presentation';
 
 const SUMMARY_FIELDS = ['pending_balance', 'available_balance', 'clawback_due', 'lifetime_earned', 'monthly_type_aggregates', 'plan_label'];
 
@@ -17,7 +18,7 @@ function Summary({ data }) {
     <h2 id="commission-summary-heading">خلاصه کمیسیون</h2>
     <p>داده‌ها مستقیماً از قرارداد خواندن سرور ارائه می‌شوند؛ محاسبه‌ای در مرورگر انجام نمی‌شود.</p>
     <dl className="commission-summary-grid">
-      {Object.entries(labels).map(([field, label]) => <div key={field}><dt>{label}</dt><dd dir="ltr">{String(data[field] ?? 0)}</dd></div>)}
+      {Object.entries(labels).map(([field, label]) => <div key={field}><dt>{label}</dt><dd dir="ltr">{formatMoney(data[field] ?? 0, data.currency_code || 'IRR')}</dd></div>)}
     </dl>
     {data.plan_label && <p>طرح: {data.plan_label}</p>}
   </section>;

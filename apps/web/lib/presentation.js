@@ -10,5 +10,12 @@ export const statusLabels = {
 export function labelStatus(value) { return statusLabels[value] || value || '—'; }
 
 export function formatMoney(value, currency = 'IRR') {
-  return `${Number(value || 0).toLocaleString('fa-IR')} ${currency}`;
+  if (value && typeof value === 'object') {
+    currency = value.currency_code || currency;
+    value = value.amount_minor;
+  }
+  const amount = typeof value === 'string' && /^-?\d+$/.test(value)
+    ? BigInt(value).toLocaleString('fa-IR')
+    : Number(value || 0).toLocaleString('fa-IR');
+  return `${amount} ${currency}`;
 }
