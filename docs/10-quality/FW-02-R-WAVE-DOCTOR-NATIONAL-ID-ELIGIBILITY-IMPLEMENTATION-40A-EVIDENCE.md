@@ -2,10 +2,10 @@
 
 ## Status and boundary
 
-- Status: Final Verification evidence complete; awaiting the Commander’s formal Wave 40 closure decision.
+- Status: Wave 40 and Final Verification 40A ACCEPTED / CLOSED by the Commander.
 - Branch: `codex/wave40-doctor-national-id-review` on `hami2test`.
 - The implementation and test source at `ad558962c54d4f6edc7217c96c17099438868ff3` were not changed for this visual verification. Evidence-only screenshots were added in commit `3d562822c7e2d0012728b9f4e9ad05492d4544ad`.
-- `hami2test/main` was not changed or merged.
+- The Commander authorized a normal merge of this feature branch to `hami2test/main` after permanent evidence-path housekeeping. Merge outcome is reported in the final handoff.
 - Production, production credentials/data, provider connections, and real-money actions: NONE. Production remains LOCKED / NO-GO.
 
 ## Doctor National-ID contract evidence
@@ -25,11 +25,11 @@ Existing Wave 39 eligibility integration also verifies session/provider scoping,
 
 Screenshots were captured from the actual authenticated LOCAL/TEST provider directory. The session came from a successful normal test-user registration/login flow; no cookie injection, token/session manipulation, or auth bypass was used. The National-ID input was empty. Visual and DOM privacy checks found no raw identifier, digest/HMAC, credential, token, or session value in the captured UI.
 
-Commit-pinned images (all raw URLs returned HTTP 200):
+The images were first shared with Gemini from `TEMP/wave40a/` using commit-pinned raw URLs (all returned HTTP 200). After review and closure, the same tracked image files were moved to this permanent evidence directory:
 
-- Desktop, 1440×900: [providers-desktop-1440x900.png](https://raw.githubusercontent.com/mytest19861986/hami-2-test/3d562822c7e2d0012728b9f4e9ad05492d4544ad/TEMP/wave40a/providers-desktop-1440x900.png)
-- Mobile, 390×844: [providers-mobile-390x844.png](https://raw.githubusercontent.com/mytest19861986/hami-2-test/3d562822c7e2d0012728b9f4e9ad05492d4544ad/TEMP/wave40a/providers-mobile-390x844.png)
-- Mobile drawer open, 390×844: [providers-mobile-drawer-390x844.jpg](https://raw.githubusercontent.com/mytest19861986/hami-2-test/3d562822c7e2d0012728b9f4e9ad05492d4544ad/TEMP/wave40a/providers-mobile-drawer-390x844.jpg)
+- Desktop, 1440×900: [providers-desktop-1440x900.png](evidence/wave-40a/providers-desktop-1440x900.png)
+- Mobile, 390×844: [providers-mobile-390x844.png](evidence/wave-40a/providers-mobile-390x844.png)
+- Mobile drawer open, 390×844: [providers-mobile-drawer-390x844.jpg](evidence/wave-40a/providers-mobile-drawer-390x844.jpg)
 
 Observed layout evidence:
 
@@ -65,6 +65,6 @@ The Commander explicitly accepted both as `NON-ACTIONABLE / UNSUPPORTED BY CURRE
 
 The first canonical-suite attempt, run immediately after the focused suite in the same API process, got `114/115` because the focused test had consumed the process-local five-request/60-second eligibility rate-limit window. No source change was made. After that window elapsed, the canonical suite was rerun serialized and passed `115/115`; this is test-process rate-limit state, not a product-code failure.
 
-## Remaining control
+## Closure and merge boundary
 
-Working-tree cleanliness and remote synchronization are verified after the ledger commit and reported with that commit SHA. Wave 40 remains open until the Commander reviews the final closure report. No merge to `hami2test/main` is authorized by this evidence document.
+The Commander accepted and closed Wave 40 after reviewing the final gates, and separately authorized a normal, non-force merge to `hami2test/main`. No production action is authorized. Final merge SHA, remote-main verification, `TEMP` cleanup, and clean working-tree state are reported in the final handoff.
