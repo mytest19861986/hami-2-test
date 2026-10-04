@@ -108,3 +108,16 @@ li { margin: .65rem 0; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .filter-grid { grid-template-columns: 1fr; width: 100%; } .card-list { width: 100%; } }
 @media (max-width: 640px) { .dashboard-grid { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .commission-summary-grid { grid-template-columns: 1fr; } }
+.support-dashboard { display: grid; gap: 1rem; min-width: 0; }
+.support-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.support-summary .card { min-width: 0; }
+.support-summary ul { margin-block-end: 0; }
+.support-section { min-width: 0; scroll-margin-block-start: 1rem; }
+.support-records { display: grid; gap: .75rem; }
+.support-record { min-width: 0; padding: .85rem; border: 1px solid #e1e9ef; border-radius: .65rem; background: #fbfcfe; }
+.support-record dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem 1rem; margin: 0; }
+.support-record dl > div { min-width: 0; }
+.support-record dt { color: var(--muted); font-size: .8rem; }
+.support-record dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .support-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .support-record dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .support-summary, .support-record dl { grid-template-columns: 1fr; } }

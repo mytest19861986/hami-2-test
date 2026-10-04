@@ -29,12 +29,12 @@ export function AuthenticatedShell({ area, brandHref, brandSubtitle, accountLabe
     <div className="app-layout">
       {menuOpen && <button className="navigation-backdrop" type="button" aria-label="بستن ناوبری" onClick={() => setMenuOpen(false)} />}
       <aside id={navigationId} className={`app-sidebar${menuOpen ? ' app-sidebar--open' : ''}`}>
-        <p className="nav-heading">{area === 'admin' ? 'مرکز عملیات' : 'فضای کاربری'}</p>
-        <nav aria-label={area === 'admin' ? 'ناوبری مدیریت' : 'ناوبری کاربر'}>
+        <p className="nav-heading">{area === 'admin' ? 'مرکز عملیات' : area === 'support' ? 'مرکز پشتیبانی' : 'فضای کاربری'}</p>
+        <nav aria-label={area === 'admin' ? 'ناوبری مدیریت' : area === 'support' ? 'ناوبری پشتیبانی' : 'ناوبری کاربر'}>
           {links.map(([href, label]) => href === 'section' ? <p className="nav-heading nav-heading--spaced" key={label}>{label}</p> : href ? <a className="nav-link" href={href} key={href} onClick={() => setMenuOpen(false)}>{label}</a> : <p className="nav-heading nav-heading--spaced" key={label}>{label}</p>)}
         </nav>
       </aside>
-      <section className="app-content"><div className="content-title"><p className="page-eyebrow">{area === 'admin' ? 'مدیریت' : 'حامی کارت'}</p><h1>{title}</h1></div>{children}</section>
+      <section className="app-content"><div className="content-title"><p className="page-eyebrow">{area === 'admin' ? 'مدیریت' : area === 'support' ? 'دسترسی محدود' : 'حامی کارت'}</p><h1>{title}</h1></div>{children}</section>
     </div>
   </main>;
 }

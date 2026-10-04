@@ -10,9 +10,9 @@ export function AdminShell({ title, permission, children }) {
   const [logoutError, setLogoutError] = useState('');
   useEffect(() => {
     const current = readSession();
-    if (current) { setSession(current); return; }
+    if (current) { if (current.roles.includes('SUPPORT') && !current.roles.some((role) => ['SUPER_ADMIN', 'ADMIN'].includes(role))) { globalThis.location.replace('/support'); return; } setSession(current); return; }
     createApiClient().get('/auth/me').then((user) => {
-      const hydrated = normalizeSessionUser(user); writeSession(hydrated); setSession(hydrated);
+      const hydrated = normalizeSessionUser(user); writeSession(hydrated); if (hydrated.roles.includes('SUPPORT') && !hydrated.roles.some((role) => ['SUPER_ADMIN', 'ADMIN'].includes(role))) { globalThis.location.replace('/support'); return; } setSession(hydrated);
     }).catch(() => { globalThis.location.href = '/login'; });
   }, []);
   if (!session) return <main dir="rtl" lang="fa"><p>در حال بررسی نشست…</p></main>;

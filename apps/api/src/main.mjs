@@ -12,6 +12,7 @@ import { emitAuthorizationDecision } from './authorization-audit-emitter.mjs';
 import { auditModeDecision, modeDedupKey } from './authorization-audit-mode.mjs';
 import { assertComplianceActor, complianceProjection } from './compliance-access.mjs';
 import { createRedemptionService, publicRedemption } from './redemption-domain.mjs';
+import { canSupport, isSupportOnly, supportPermissions, supportUserProjection } from './support-access.mjs';
 
 const payoutProvider = new FakePayoutProvider();
 const redemptionService = createRedemptionService(prisma);
@@ -91,6 +92,8 @@ class AuthController {
     if (!auth) throw new Error('UNAUTHORIZED');
     const current = await prisma.user.findUnique({ where: { id: auth.sub }, select: { id: true, status: true, roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
     if (!current || current.status !== 'ACTIVE') throw new Error('UNAUTHORIZED');
+    const supportOnly = isSupportOnly(current.roles);
+    if (supportOnly && !canSupport(permission)) throw new Error('FORBIDDEN');
     const allowed = current.roles.some((link) => link.role.permissions.some((item) => `${item.permission.resource}.${item.permission.action}` === permission));
     if (!allowed) throw new Error('FORBIDDEN');
     return current;
@@ -798,6 +801,47 @@ class ComplianceController {
   }
 }
 
+class SupportController {
+  async summary(req) {
+    await new AuthController().currentWithPermission(req, 'support.dashboard.read');
+    const [users, providers, purchases, memberships, refundCases, redemptions] = await Promise.all([
+      prisma.user.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.provider.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.planPurchase.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.benefitMembership.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.refundReconciliationCase.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.redemption.groupBy({ by: ['status'], _count: { _all: true } }),
+    ]);
+    const counts = (rows) => Object.fromEntries(rows.map((row) => [row.status, row._count._all]));
+    return { users: counts(users), providers: counts(providers), purchases: counts(purchases), memberships: counts(memberships), refund_cases: counts(refundCases), redemptions: counts(redemptions) };
+  }
+  async users(req) {
+    await new AuthController().currentWithPermission(req, 'support.users.read');
+    const rows = await prisma.user.findMany({ orderBy: { createdAt: 'desc' }, take: 100, select: { id: true, status: true, createdAt: true, profile: { select: { firstName: true, lastName: true } } } });
+    return rows.map(supportUserProjection);
+  }
+  async providers(req) {
+    await new AuthController().currentWithPermission(req, 'support.providers.read');
+    return prisma.provider.findMany({ orderBy: { createdAt: 'desc' }, take: 100, select: { status: true, displayName: true, province: { select: { name: true } }, city: { select: { name: true } }, doctorProfile: { select: { specialty: { select: { name: true } } } } } });
+  }
+  async purchases(req) {
+    await new AuthController().currentWithPermission(req, 'support.purchases.read');
+    return prisma.planPurchase.findMany({ orderBy: { createdAt: 'desc' }, take: 100, select: { status: true, createdAt: true, plan: { select: { name: true } }, membership: { select: { status: true } } } });
+  }
+  async memberships(req) {
+    await new AuthController().currentWithPermission(req, 'support.memberships.read');
+    return prisma.benefitMembership.findMany({ orderBy: { createdAt: 'desc' }, take: 100, select: { status: true, startsAt: true, endsAt: true, plan: { select: { name: true } } } });
+  }
+  async redemptions(req) {
+    await new AuthController().currentWithPermission(req, 'support.redemptions.read');
+    return prisma.redemption.findMany({ orderBy: { createdAt: 'desc' }, take: 100, select: { status: true, createdAt: true, confirmedAt: true, provider: { select: { displayName: true } } } });
+  }
+  async refundCases(req) {
+    await new AuthController().currentWithPermission(req, 'support.refund_cases.read');
+    return prisma.refundReconciliationCase.findMany({ orderBy: { createdAt: 'desc' }, take: 100, select: { status: true, requestReasonCode: true, requestedAt: true, decisionReasonCode: true, purchase: { select: { status: true, membership: { select: { status: true } }, plan: { select: { name: true } } } } } });
+  }
+}
+
 function dashboardMoney(amount, currency = 'IRR') {
   return { amount_minor: String(amount ?? 0n), currency_code: currency };
 }
@@ -934,6 +978,15 @@ Controller()(DashboardController);
 
 Get('admin/compliance/audit-events')(ComplianceController.prototype, 'auditEvents', Object.getOwnPropertyDescriptor(ComplianceController.prototype, 'auditEvents')); Req()(ComplianceController.prototype, 'auditEvents', 0);
 Controller()(ComplianceController);
+
+Get('support/summary')(SupportController.prototype, 'summary', Object.getOwnPropertyDescriptor(SupportController.prototype, 'summary')); Req()(SupportController.prototype, 'summary', 0);
+Get('support/users')(SupportController.prototype, 'users', Object.getOwnPropertyDescriptor(SupportController.prototype, 'users')); Req()(SupportController.prototype, 'users', 0);
+Get('support/providers')(SupportController.prototype, 'providers', Object.getOwnPropertyDescriptor(SupportController.prototype, 'providers')); Req()(SupportController.prototype, 'providers', 0);
+Get('support/purchases')(SupportController.prototype, 'purchases', Object.getOwnPropertyDescriptor(SupportController.prototype, 'purchases')); Req()(SupportController.prototype, 'purchases', 0);
+Get('support/memberships')(SupportController.prototype, 'memberships', Object.getOwnPropertyDescriptor(SupportController.prototype, 'memberships')); Req()(SupportController.prototype, 'memberships', 0);
+Get('support/redemptions')(SupportController.prototype, 'redemptions', Object.getOwnPropertyDescriptor(SupportController.prototype, 'redemptions')); Req()(SupportController.prototype, 'redemptions', 0);
+Get('support/refund-cases')(SupportController.prototype, 'refundCases', Object.getOwnPropertyDescriptor(SupportController.prototype, 'refundCases')); Req()(SupportController.prototype, 'refundCases', 0);
+Controller()(SupportController);
 Post('sales-partner/customers')(SalesCommissionController.prototype, 'createAttribution', Object.getOwnPropertyDescriptor(SalesCommissionController.prototype, 'createAttribution')); Body()(SalesCommissionController.prototype, 'createAttribution', 0); Req()(SalesCommissionController.prototype, 'createAttribution', 1);
 Get('sales-partner/customers')(SalesCommissionController.prototype, 'myAttributions', Object.getOwnPropertyDescriptor(SalesCommissionController.prototype, 'myAttributions')); Req()(SalesCommissionController.prototype, 'myAttributions', 0);
 Get('rep/commission/summary')(SalesCommissionController.prototype, 'representativeSummary', Object.getOwnPropertyDescriptor(SalesCommissionController.prototype, 'representativeSummary')); Req()(SalesCommissionController.prototype, 'representativeSummary', 0);
@@ -1209,11 +1262,11 @@ Req()(AuthController.prototype, 'setDefaultAddress', 1);
 Controller()(AuthController);
 
 class AppModule {}
-Module({ controllers: [HealthController, LocationController, AuthController, ProviderController, BenefitController, RedemptionController, RewardsController, CommercialAdminController, SalesCommissionController, WithdrawalAdminController, ComplianceController, DashboardController] })(AppModule);
+Module({ controllers: [HealthController, LocationController, AuthController, ProviderController, BenefitController, RedemptionController, RewardsController, CommercialAdminController, SalesCommissionController, WithdrawalAdminController, ComplianceController, SupportController, DashboardController] })(AppModule);
 
 async function seedRbac() {
   const roles = ['SUPER_ADMIN', 'ADMIN', 'SUPPORT', 'COMPLIANCE_AUDITOR', 'SALES_PARTNER', 'USER'];
-  const permissions = [['users', 'read'], ['users', 'create'], ['users', 'update'], ['users', 'disable'], ['providers', 'read'], ['providers', 'create'], ['providers', 'update'], ['providers', 'approve'], ['providers', 'suspend'], ['providers', 'doctor_national_id.read'], ['providers', 'doctor_national_id.manage'], ['specialties', 'read'], ['specialties', 'manage'], ['roles', 'read'], ['roles', 'manage'], ['permissions', 'read'], ['permissions', 'manage'], ['audit', 'read'], ['compliance', 'audit_read'], ['plans', 'read'], ['plans', 'create'], ['plans', 'update'], ['plans', 'manage_providers'], ['purchases', 'read'], ['purchases', 'confirm_payment'], ['purchases', 'refund'], ['memberships', 'read'], ['memberships', 'approve'], ['memberships', 'reject'], ['eligibility', 'check'], ['redemptions', 'reverse'], ['commercial_settings', 'read'], ['commercial_settings', 'manage'], ['withdrawals', 'read'], ['withdrawals', 'approve'], ['withdrawals', 'reject'], ['withdrawals', 'mark_paid'], ['commissions', 'read'], ['commissions', 'summary_read'], ['commissions', 'approve'], ['commissions', 'reject'], ['sales_attributions', 'read'], ['sales_attributions', 'create'], ['sales_attributions', 'manage']];
+  const permissions = [['users', 'read'], ['users', 'create'], ['users', 'update'], ['users', 'disable'], ['providers', 'read'], ['providers', 'create'], ['providers', 'update'], ['providers', 'approve'], ['providers', 'suspend'], ['providers', 'doctor_national_id.read'], ['providers', 'doctor_national_id.manage'], ['specialties', 'read'], ['specialties', 'manage'], ['roles', 'read'], ['roles', 'manage'], ['permissions', 'read'], ['permissions', 'manage'], ['audit', 'read'], ['compliance', 'audit_read'], ['plans', 'read'], ['plans', 'create'], ['plans', 'update'], ['plans', 'manage_providers'], ['purchases', 'read'], ['purchases', 'confirm_payment'], ['purchases', 'refund'], ['memberships', 'read'], ['memberships', 'approve'], ['memberships', 'reject'], ['eligibility', 'check'], ['redemptions', 'read'], ['redemptions', 'reverse'], ['commercial_settings', 'read'], ['commercial_settings', 'manage'], ['withdrawals', 'read'], ['withdrawals', 'approve'], ['withdrawals', 'reject'], ['withdrawals', 'mark_paid'], ['commissions', 'read'], ['commissions', 'summary_read'], ['commissions', 'approve'], ['commissions', 'reject'], ['sales_attributions', 'read'], ['sales_attributions', 'create'], ['sales_attributions', 'manage'], ['support', 'dashboard.read'], ['support', 'users.read'], ['support', 'providers.read'], ['support', 'purchases.read'], ['support', 'memberships.read'], ['support', 'redemptions.read'], ['support', 'refund_cases.read']];
   for (const name of roles) await prisma.role.upsert({ where: { name }, update: {}, create: { name } });
   for (const [resource, action] of permissions) await prisma.permission.upsert({ where: { resource_action: { resource, action } }, update: {}, create: { resource, action } });
   const admin = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } });
@@ -1227,6 +1280,14 @@ async function seedRbac() {
   const compliance = await prisma.role.findUnique({ where: { name: 'COMPLIANCE_AUDITOR' } });
   const compliancePermission = await prisma.permission.findUnique({ where: { resource_action: { resource: 'compliance', action: 'audit_read' } } });
   await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: compliance.id, permissionId: compliancePermission.id } }, update: {}, create: { roleId: compliance.id, permissionId: compliancePermission.id } });
+  const support = await prisma.role.findUnique({ where: { name: 'SUPPORT' } });
+  for (const permissionName of supportPermissions) {
+    const separator = permissionName.indexOf('.');
+    const resource = permissionName.slice(0, separator);
+    const action = permissionName.slice(separator + 1);
+    const permission = await prisma.permission.findUnique({ where: { resource_action: { resource, action } } });
+    await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: support.id, permissionId: permission.id } }, update: {}, create: { roleId: support.id, permissionId: permission.id } });
+  }
 }
 
 async function seedCommercialSettings() {
