@@ -106,6 +106,9 @@ test('doctor national ID eligibility is exact, status-gated, unique, audited, an
   const prefix = String(Date.now()).slice(-9);
   const checksum = prefix.split('').reduce((total, digit, index) => total + Number(digit) * (10 - index), 0) % 11;
   const nationalId = `${prefix}${checksum < 2 ? checksum : 11 - checksum}`;
+  const unknownPrefix = String(Number(prefix) + 1).padStart(9, '0').slice(-9);
+  const unknownChecksum = unknownPrefix.split('').reduce((total, digit, index) => total + Number(digit) * (10 - index), 0) % 11;
+  const unknownNationalId = `${unknownPrefix}${unknownChecksum < 2 ? unknownChecksum : 11 - unknownChecksum}`;
   const registration = { displayName: `Doctor ${suffix}`, provinceId: province.id, cityId: city.id, medicalCouncilNumber: `NID-${suffix}`, nationalId, specialtyId: specialty.id, address: '', phone: '' };
   const headers = (session) => ({ authorization: `Bearer ${session.accessToken}`, 'content-type': 'application/json' });
   const createdResponse = await fetch(`${base}/providers/doctor-registration`, { method: 'POST', headers: headers(doctor), body: JSON.stringify(registration) });
@@ -121,12 +124,16 @@ test('doctor national ID eligibility is exact, status-gated, unique, audited, an
 
   const invalid = await fetch(`${base}/providers/eligibility/doctor`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nationalId: '1234567890' }) });
   assert.equal(invalid.status, 400);
+  const unknown = await fetch(`${base}/providers/eligibility/doctor`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nationalId: unknownNationalId }) });
+  assert.deepEqual(await unknown.json(), { eligible: false });
   const lookup = () => fetch(`${base}/providers/eligibility/doctor`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nationalId }) });
-  const pendingResult = await lookup();
-  assert.deepEqual(await pendingResult.json(), { eligible: false });
 
   const superAdmin = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } });
   await prisma.userRole.create({ data: { userId: doctor.user.id, roleId: superAdmin.id } });
+  const statusResponse = await fetch(`${base}/admin/providers/${provider.id}/doctor-national-id`, { headers: headers(doctor) });
+  assert.deepEqual(await statusResponse.json(), { configured: true });
+  const manageResponse = await fetch(`${base}/admin/providers/${provider.id}/doctor-national-id`, { method: 'PUT', headers: headers(doctor), body: JSON.stringify({ nationalId }) });
+  assert.deepEqual(await manageResponse.json(), { configured: true });
   const deniedMutation = await fetch(`${base}/admin/providers/${provider.id}/doctor-national-id`, { method: 'PUT', headers: headers(other), body: JSON.stringify({ nationalId }) });
   assert.equal(deniedMutation.status, 403);
   const approved = await fetch(`${base}/admin/providers/${provider.id}/status`, { method: 'PATCH', headers: headers(doctor), body: JSON.stringify({ status: 'APPROVED' }) });
@@ -149,6 +156,11 @@ test('doctor national ID eligibility is exact, status-gated, unique, audited, an
 
   const suspended = await fetch(`${base}/admin/providers/${provider.id}/status`, { method: 'PATCH', headers: headers(doctor), body: JSON.stringify({ status: 'SUSPENDED' }) });
   assert.equal(suspended.status, 200);
+  assert.deepEqual(await (await lookup()).json(), { eligible: false });
+  const draft = await fetch(`${base}/admin/providers/${provider.id}/status`, { method: 'PATCH', headers: headers(doctor), body: JSON.stringify({ status: 'DRAFT' }) });
+  assert.equal(draft.status, 200);
+  const rejected = await fetch(`${base}/admin/providers/${provider.id}/status`, { method: 'PATCH', headers: headers(doctor), body: JSON.stringify({ status: 'REJECTED' }) });
+  assert.equal(rejected.status, 200);
   assert.deepEqual(await (await lookup()).json(), { eligible: false });
   await prisma.userRole.delete({ where: { userId_roleId: { userId: doctor.user.id, roleId: superAdmin.id } } });
   await prisma.providerMembership.deleteMany({ where: { providerId: provider.id } });
