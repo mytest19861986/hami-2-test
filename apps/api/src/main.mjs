@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { Body, Controller, Delete, Get, Module, Patch, Post, Put, Req, Res } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { assertOriginAndCsrf, audit, clearSessionCookies, cookieAuth, consumeVerifiedRegistration, createPasswordSetupToken, createSession, hashPassword, normalizeMobile, prisma, readPasswordSetupToken, rememberVerifiedRegistration, requestOtp, revokeSession, rotateSession, setSessionCookies, verifyOtp, verifyPassword, REFRESH_COOKIE } from './auth.mjs';
-import { requireUser, validateAddressInput, validateProfileInput, normalizeNationalId } from './profile.mjs';
+import { requireUser, validateAddressInput, validateProfileInput, normalizeNationalId, doctorNationalIdIdentity } from './profile.mjs';
 import { evaluateEligibility } from './eligibility.mjs';
 import { LocalRateLimitStore, enforceRateLimit } from './rate-limit.mjs';
 import { FakePayoutProvider, classifyDiscrepancy, isDefinitiveNotPaid, snapshotsEqual } from './payout-core.mjs';
@@ -252,6 +252,20 @@ class AuthController {
 class ProviderController {
   normalizeCouncil(value) { const normalized = String(value ?? '').trim().replace(/\s+/g, ''); if (!/^[0-9A-Za-z-]{4,32}$/.test(normalized)) throw new Error('INVALID_MEDICAL_COUNCIL_NUMBER'); return normalized; }
   publicInclude() { return { province: { select: { id: true, name: true, code: true } }, city: { select: { id: true, name: true, provinceId: true } }, doctorProfile: { select: { specialty: { select: { id: true, name: true } } } } }; }
+  safeDoctorProfile(profile) { if (!profile) return null; const safe = { ...profile }; delete safe.nationalIdHmac; delete safe.nationalIdKeyVersion; return safe; }
+  safeProvider(provider) { if (!provider) return provider; return { ...provider, doctorProfile: this.safeDoctorProfile(provider.doctorProfile) }; }
+  async eligibility(body, req) {
+    rateLimit(`doctor-national-id-eligibility:${req.ip ?? 'unknown'}`);
+    let identity;
+    try { identity = doctorNationalIdIdentity(body?.nationalId); } catch (error) {
+      if (error.message === 'INVALID_NATIONAL_ID') throw error;
+      throw error;
+    }
+    const doctor = await prisma.doctorProfile.findUnique({ where: { nationalIdHmac: identity.nationalIdHmac }, select: { provider: { select: { id: true, status: true, displayName: true, type: true, province: { select: { name: true } }, city: { select: { name: true } }, doctorProfile: { select: { specialty: { select: { name: true } } } } } } } });
+    const provider = doctor?.provider;
+    if (!provider || provider.type !== 'DOCTOR' || provider.status !== 'APPROVED') return { eligible: false };
+    return { eligible: true, provider: { id: provider.id, displayName: provider.displayName, specialty: provider.doctorProfile?.specialty?.name ?? null, province: provider.province?.name ?? null, city: provider.city?.name ?? null } };
+  }
   async list(req) {
     const where = { status: 'APPROVED', ...(req.query?.type ? { type: req.query.type } : {}), ...(req.query?.provinceId ? { provinceId: req.query.provinceId } : {}), ...(req.query?.cityId ? { cityId: req.query.cityId } : {}), ...(req.query?.specialtyId ? { doctorProfile: { specialtyId: req.query.specialtyId } } : {}) };
     return prisma.provider.findMany({ where, select: { id: true, type: true, status: true, displayName: true, address: true, phone: true, imageUrl: true, ...this.publicInclude() }, orderBy: { displayName: 'asc' } });
@@ -266,37 +280,58 @@ class ProviderController {
   }
   async registerDoctor(body, req) {
     const user = await requireUser(req);
-    if (!body?.displayName || !body?.provinceId || !body?.cityId || !body?.medicalCouncilNumber || !body?.specialtyId) throw new Error('INVALID_PROVIDER');
+    if (!body?.displayName || !body?.provinceId || !body?.cityId || !body?.medicalCouncilNumber || !body?.specialtyId || !body?.nationalId) throw new Error('INVALID_PROVIDER');
     body.medicalCouncilNumber = this.normalizeCouncil(body.medicalCouncilNumber);
+    const identity = doctorNationalIdIdentity(body.nationalId);
     if (!await prisma.city.findFirst({ where: { id: body.cityId, provinceId: body.provinceId }, select: { id: true } })) throw new Error('INVALID_PROVIDER');
-    return prisma.$transaction(async (tx) => {
-      const provider = await tx.provider.create({ data: { type: 'DOCTOR', status: 'PENDING_REVIEW', displayName: body.displayName, provinceId: body.provinceId, cityId: body.cityId, address: body.address ?? '', phone: body.phone ?? '', imageUrl: body.imageUrl ?? null, memberships: { create: { userId: user.id, role: 'OWNER' } }, doctorProfile: { create: { medicalCouncilNumber: body.medicalCouncilNumber, specialtyId: body.specialtyId } } }, include: { doctorProfile: true } });
+    try { return await prisma.$transaction(async (tx) => {
+      const provider = await tx.provider.create({ data: { type: 'DOCTOR', status: 'PENDING_REVIEW', displayName: body.displayName, provinceId: body.provinceId, cityId: body.cityId, address: body.address ?? '', phone: body.phone ?? '', imageUrl: body.imageUrl ?? null, memberships: { create: { userId: user.id, role: 'OWNER' } }, doctorProfile: { create: { medicalCouncilNumber: body.medicalCouncilNumber, specialtyId: body.specialtyId, ...identity } } }, include: { doctorProfile: { include: { specialty: true } }, province: true, city: true } });
       await audit(user.id, 'DOCTOR_REGISTRATION_SUBMITTED', 'Provider');
-      return provider;
-    });
+      return this.safeProvider(provider);
+    }); } catch (error) { if (error?.code === 'P2002') throw new Error('DOCTOR_NATIONAL_ID_ALREADY_ASSIGNED'); throw error; }
   }
-  async me(req) { const user = await requireUser(req); const rows = await prisma.provider.findMany({ where: { memberships: { some: { userId: user.id } } }, include: { doctorProfile: { include: { specialty: true } }, province: true, city: true } }); if (!rows.length) throw new Error('FORBIDDEN'); return rows; }
-  async adminList(req) { await new AuthController().currentWithPermission(req, 'providers.read'); return prisma.provider.findMany({ include: { doctorProfile: { include: { specialty: true } }, province: true, city: true }, orderBy: { createdAt: 'desc' } }); }
-  async adminDetail(req) { await new AuthController().currentWithPermission(req, 'providers.read'); const provider = await prisma.provider.findUnique({ where: { id: req.params.id }, include: { doctorProfile: { include: { specialty: true } }, province: true, city: true, memberships: true } }); if (!provider) throw new Error('PROVIDER_NOT_FOUND'); return provider; }
+  async me(req) { const user = await requireUser(req); const rows = await prisma.provider.findMany({ where: { memberships: { some: { userId: user.id } } }, include: { doctorProfile: { include: { specialty: true } }, province: true, city: true } }); return rows.map((row) => this.safeProvider(row)); }
+  async adminList(req) { await new AuthController().currentWithPermission(req, 'providers.read'); const rows = await prisma.provider.findMany({ include: { doctorProfile: { include: { specialty: true } }, province: true, city: true }, orderBy: { createdAt: 'desc' } }); return rows.map((row) => this.safeProvider(row)); }
+  async adminDetail(req) { await new AuthController().currentWithPermission(req, 'providers.read'); const provider = await prisma.provider.findUnique({ where: { id: req.params.id }, include: { doctorProfile: { include: { specialty: true } }, province: true, city: true, memberships: true } }); if (!provider) throw new Error('PROVIDER_NOT_FOUND'); return this.safeProvider(provider); }
   async adminStatus(body, req) {
     const actor = await new AuthController().currentWithPermission(req, body.status === 'APPROVED' ? 'providers.approve' : body.status === 'SUSPENDED' ? 'providers.suspend' : 'providers.update');
     if (!['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SUSPENDED'].includes(body.status)) throw new Error('INVALID_PROVIDER_STATUS');
-    const current = await prisma.provider.findUnique({ where: { id: req.params.id }, select: { status: true } });
+    const current = await prisma.provider.findUnique({ where: { id: req.params.id }, select: { status: true, type: true } });
     if (!current) throw new Error('PROVIDER_NOT_FOUND');
+    if (body.status === 'APPROVED' && current.type === 'DOCTOR') { const identity = await prisma.doctorProfile.findUnique({ where: { providerId: req.params.id }, select: { nationalIdHmac: true } }); if (!identity?.nationalIdHmac) throw new Error('DOCTOR_NATIONAL_ID_REQUIRED'); }
     const allowed = { DRAFT: ['PENDING_REVIEW', 'REJECTED'], PENDING_REVIEW: ['APPROVED', 'REJECTED'], APPROVED: ['SUSPENDED'], REJECTED: ['DRAFT'], SUSPENDED: ['DRAFT'] };
     if (!allowed[current.status]?.includes(body.status)) throw new Error('INVALID_PROVIDER_TRANSITION');
     const updated = await prisma.provider.update({ where: { id: req.params.id }, data: { status: body.status }, include: { doctorProfile: true } });
     await audit(actor.id, `PROVIDER_${body.status}`, 'Provider');
-    return updated;
+    return this.safeProvider(updated);
   }
   async adminCreate(body, req) {
     const actor = await new AuthController().currentWithPermission(req, 'providers.create');
-    if (!body?.displayName || !body?.provinceId || !body?.cityId || !body?.medicalCouncilNumber || !body?.specialtyId) throw new Error('INVALID_PROVIDER');
+    if (!body?.displayName || !body?.provinceId || !body?.cityId || !body?.medicalCouncilNumber || !body?.specialtyId || !body?.nationalId) throw new Error('INVALID_PROVIDER');
+    const actorWithIdentityPermission = await new AuthController().currentWithPermission(req, 'providers.doctor_national_id.manage');
+    const identity = doctorNationalIdIdentity(body.nationalId);
     body.medicalCouncilNumber = this.normalizeCouncil(body.medicalCouncilNumber);
     if (!await prisma.city.findFirst({ where: { id: body.cityId, provinceId: body.provinceId }, select: { id: true } })) throw new Error('INVALID_PROVIDER');
-    const provider = await prisma.provider.create({ data: { type: 'DOCTOR', status: 'DRAFT', displayName: body.displayName, provinceId: body.provinceId, cityId: body.cityId, address: body.address ?? '', phone: body.phone ?? '', imageUrl: body.imageUrl ?? null, doctorProfile: { create: { medicalCouncilNumber: body.medicalCouncilNumber, specialtyId: body.specialtyId } } }, include: { doctorProfile: true } });
+    const provider = await prisma.provider.create({ data: { type: 'DOCTOR', status: 'DRAFT', displayName: body.displayName, provinceId: body.provinceId, cityId: body.cityId, address: body.address ?? '', phone: body.phone ?? '', imageUrl: body.imageUrl ?? null, doctorProfile: { create: { medicalCouncilNumber: body.medicalCouncilNumber, specialtyId: body.specialtyId, ...identity } } }, include: { doctorProfile: true } });
     await audit(actor.id, 'PROVIDER_CREATED', 'Provider');
-    return provider;
+    await audit(actorWithIdentityPermission.id, 'DOCTOR_NATIONAL_ID_SET', 'Provider', { entityId: provider.id });
+    return this.safeProvider(provider);
+  }
+  async nationalIdStatus(req) {
+    const actor = await new AuthController().currentWithPermission(req, 'providers.doctor_national_id.read');
+    const profile = await prisma.doctorProfile.findUnique({ where: { providerId: req.params.id }, select: { nationalIdHmac: true } });
+    if (!profile) throw new Error('PROVIDER_NOT_FOUND');
+    await audit(actor.id, 'DOCTOR_NATIONAL_ID_STATUS_READ', 'Provider', { entityId: req.params.id });
+    return { configured: Boolean(profile.nationalIdHmac) };
+  }
+  async manageNationalId(body, req) {
+    const actor = await new AuthController().currentWithPermission(req, 'providers.doctor_national_id.manage');
+    const identity = doctorNationalIdIdentity(body?.nationalId);
+    const profile = await prisma.doctorProfile.findUnique({ where: { providerId: req.params.id }, select: { id: true, nationalIdHmac: true } });
+    if (!profile) throw new Error('PROVIDER_NOT_FOUND');
+    await prisma.doctorProfile.update({ where: { id: profile.id }, data: identity });
+    await audit(actor.id, profile.nationalIdHmac ? 'DOCTOR_NATIONAL_ID_CHANGED' : 'DOCTOR_NATIONAL_ID_SET', 'Provider', { entityId: req.params.id });
+    return { configured: true };
   }
   async update(reqBody, req) {
     const user = await requireUser(req);
@@ -305,7 +340,7 @@ class ProviderController {
     if (!['DRAFT', 'PENDING_REVIEW'].includes(owned.status)) throw new Error('PROVIDER_NOT_EDITABLE');
     const data = { displayName: reqBody.displayName ?? owned.displayName, address: reqBody.address ?? owned.address, phone: reqBody.phone ?? owned.phone, imageUrl: reqBody.imageUrl ?? owned.imageUrl };
     if (reqBody.provinceId || reqBody.cityId) { const provinceId = reqBody.provinceId ?? owned.provinceId; const cityId = reqBody.cityId ?? owned.cityId; if (!await prisma.city.findFirst({ where: { id: cityId, provinceId }, select: { id: true } })) throw new Error('INVALID_PROVIDER'); data.provinceId = provinceId; data.cityId = cityId; }
-    const updated = await prisma.provider.update({ where: { id: owned.id }, data, include: { doctorProfile: true } }); await audit(user.id, 'PROVIDER_UPDATED', 'Provider'); return updated;
+    const updated = await prisma.provider.update({ where: { id: owned.id }, data, include: { doctorProfile: { include: { specialty: true } }, province: true, city: true } }); await audit(user.id, 'PROVIDER_UPDATED', 'Provider'); return this.safeProvider(updated);
   }
 }
 
@@ -1120,6 +1155,9 @@ Post('providers/doctor-registration')(ProviderController.prototype, 'registerDoc
 Get('users/me/providers')(ProviderController.prototype, 'me', Object.getOwnPropertyDescriptor(ProviderController.prototype, 'me')); Req()(ProviderController.prototype, 'me', 0);
 Get('admin/providers')(ProviderController.prototype, 'adminList', Object.getOwnPropertyDescriptor(ProviderController.prototype, 'adminList')); Req()(ProviderController.prototype, 'adminList', 0);
 Get('admin/providers/:id')(ProviderController.prototype, 'adminDetail', Object.getOwnPropertyDescriptor(ProviderController.prototype, 'adminDetail')); Req()(ProviderController.prototype, 'adminDetail', 0);
+Get('admin/providers/:id/doctor-national-id')(ProviderController.prototype, 'nationalIdStatus', Object.getOwnPropertyDescriptor(ProviderController.prototype, 'nationalIdStatus')); Req()(ProviderController.prototype, 'nationalIdStatus', 0);
+Put('admin/providers/:id/doctor-national-id')(ProviderController.prototype, 'manageNationalId', Object.getOwnPropertyDescriptor(ProviderController.prototype, 'manageNationalId')); Body()(ProviderController.prototype, 'manageNationalId', 0); Req()(ProviderController.prototype, 'manageNationalId', 1);
+Post('providers/eligibility/doctor')(ProviderController.prototype, 'eligibility', Object.getOwnPropertyDescriptor(ProviderController.prototype, 'eligibility')); Body()(ProviderController.prototype, 'eligibility', 0); Req()(ProviderController.prototype, 'eligibility', 1);
 Post('admin/providers')(ProviderController.prototype, 'adminCreate', Object.getOwnPropertyDescriptor(ProviderController.prototype, 'adminCreate')); Body()(ProviderController.prototype, 'adminCreate', 0); Req()(ProviderController.prototype, 'adminCreate', 1);
 Patch('admin/providers/:id')(ProviderController.prototype, 'update', Object.getOwnPropertyDescriptor(ProviderController.prototype, 'update')); Body()(ProviderController.prototype, 'update', 0); Req()(ProviderController.prototype, 'update', 1);
 Patch('admin/providers/:id/status')(ProviderController.prototype, 'adminStatus', Object.getOwnPropertyDescriptor(ProviderController.prototype, 'adminStatus')); Body()(ProviderController.prototype, 'adminStatus', 0); Req()(ProviderController.prototype, 'adminStatus', 1);
@@ -1175,7 +1213,7 @@ Module({ controllers: [HealthController, LocationController, AuthController, Pro
 
 async function seedRbac() {
   const roles = ['SUPER_ADMIN', 'ADMIN', 'SUPPORT', 'COMPLIANCE_AUDITOR', 'SALES_PARTNER', 'USER'];
-  const permissions = [['users', 'read'], ['users', 'create'], ['users', 'update'], ['users', 'disable'], ['providers', 'read'], ['providers', 'create'], ['providers', 'update'], ['providers', 'approve'], ['providers', 'suspend'], ['specialties', 'read'], ['specialties', 'manage'], ['roles', 'read'], ['roles', 'manage'], ['permissions', 'read'], ['permissions', 'manage'], ['audit', 'read'], ['compliance', 'audit_read'], ['plans', 'read'], ['plans', 'create'], ['plans', 'update'], ['plans', 'manage_providers'], ['purchases', 'read'], ['purchases', 'confirm_payment'], ['purchases', 'refund'], ['memberships', 'read'], ['memberships', 'approve'], ['memberships', 'reject'], ['eligibility', 'check'], ['redemptions', 'reverse'], ['commercial_settings', 'read'], ['commercial_settings', 'manage'], ['withdrawals', 'read'], ['withdrawals', 'approve'], ['withdrawals', 'reject'], ['withdrawals', 'mark_paid'], ['commissions', 'read'], ['commissions', 'summary_read'], ['commissions', 'approve'], ['commissions', 'reject'], ['sales_attributions', 'read'], ['sales_attributions', 'create'], ['sales_attributions', 'manage']];
+  const permissions = [['users', 'read'], ['users', 'create'], ['users', 'update'], ['users', 'disable'], ['providers', 'read'], ['providers', 'create'], ['providers', 'update'], ['providers', 'approve'], ['providers', 'suspend'], ['providers', 'doctor_national_id.read'], ['providers', 'doctor_national_id.manage'], ['specialties', 'read'], ['specialties', 'manage'], ['roles', 'read'], ['roles', 'manage'], ['permissions', 'read'], ['permissions', 'manage'], ['audit', 'read'], ['compliance', 'audit_read'], ['plans', 'read'], ['plans', 'create'], ['plans', 'update'], ['plans', 'manage_providers'], ['purchases', 'read'], ['purchases', 'confirm_payment'], ['purchases', 'refund'], ['memberships', 'read'], ['memberships', 'approve'], ['memberships', 'reject'], ['eligibility', 'check'], ['redemptions', 'reverse'], ['commercial_settings', 'read'], ['commercial_settings', 'manage'], ['withdrawals', 'read'], ['withdrawals', 'approve'], ['withdrawals', 'reject'], ['withdrawals', 'mark_paid'], ['commissions', 'read'], ['commissions', 'summary_read'], ['commissions', 'approve'], ['commissions', 'reject'], ['sales_attributions', 'read'], ['sales_attributions', 'create'], ['sales_attributions', 'manage']];
   for (const name of roles) await prisma.role.upsert({ where: { name }, update: {}, create: { name } });
   for (const [resource, action] of permissions) await prisma.permission.upsert({ where: { resource_action: { resource, action } }, update: {}, create: { resource, action } });
   const admin = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } });
@@ -1254,7 +1292,7 @@ app.use((req, res, next) => {
 app.useGlobalFilters({ catch(exception, host) {
   const response = host.switchToHttp().getResponse();
   const code = exception?.message ?? 'INTERNAL_ERROR';
-  const status = exception?.code === 'P2002' || code === 'P2002' ? 409 : code === 'RATE_LIMITED' ? 429 : ['UNAUTHORIZED', 'AUTH_FAILED', 'OTP_INVALID', 'REFRESH_INVALID', 'MOBILE_NOT_VERIFIED', 'PASSWORD_SETUP_REQUIRED'].includes(code) ? 401 : ['FORBIDDEN', 'CSRF_REJECTED', 'AUTH_CONFLICT'].includes(code) ? 403 : ['INVALID_MOBILE', 'INVALID_PROFILE', 'INVALID_NATIONAL_ID', 'INVALID_ADDRESS', 'INVALID_STATUS', 'INVALID_PROVIDER', 'INVALID_PROVIDER_STATUS', 'INVALID_PROVIDER_TRANSITION', 'INVALID_MEDICAL_COUNCIL_NUMBER', 'PROVIDER_NOT_EDITABLE', 'PAYMENT_NOT_CONFIRMABLE', 'PAYMENT_REFERENCE_REQUIRED', 'REFUND_REFERENCE_REQUIRED', 'REFUND_NOT_ALLOWED', 'REFUND_CASE_REASON_REQUIRED', 'REFUND_CASE_IDEMPOTENCY_KEY_REQUIRED', 'REFUND_CASE_NOT_ELIGIBLE', 'REFUND_CASE_DECISION_REASON_REQUIRED', 'MEMBERSHIP_REJECTION_REASON_REQUIRED', 'MEMBERSHIP_NOT_ACTIONABLE', 'MEMBERSHIP_ACTIVATION_GUARD_FAILED', 'MEMBERSHIP_DECISION_RACE', 'PAID_PURCHASE_MEMBERSHIP_INCONSISTENT', 'INVALID_PLAN', 'INVALID_DISCOUNT', 'INVALID_STATE_TRANSITION', 'INVALID_REDEMPTION_TRANSITION', 'IDEMPOTENCY_KEY_REQUIRED', 'REDEMPTION_TOKEN_REQUIRED', 'REDEMPTION_NOT_ELIGIBLE', 'REDEMPTION_NOT_CONFIRMABLE', 'REDEMPTION_NOT_CANCELLABLE', 'REDEMPTION_TOKEN_INVALID', 'REDEMPTION_EXPIRED', 'REVERSAL_REASON_REQUIRED', 'INSUFFICIENT_BALANCE', 'INVALID_WITHDRAWAL_AMOUNT', 'INVALID_FINANCIAL_AMOUNT', 'WITHDRAWAL_NOT_ALLOWED', 'WITHDRAWAL_NOT_ACTIONABLE'].includes(code) ? 400 : ['ADDRESS_NOT_FOUND', 'USER_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PLAN_NOT_FOUND', 'PURCHASE_NOT_FOUND', 'MEMBERSHIP_NOT_FOUND', 'REFUND_CASE_NOT_FOUND', 'REDEMPTION_NOT_FOUND', 'PLAN_OR_PROVIDER_NOT_FOUND', 'WITHDRAWAL_NOT_FOUND'].includes(code) ? 404 : ['IDEMPOTENCY_CONFLICT', 'PAYMENT_CONFIRMATION_RACE', 'REFUND_RACE', 'REFUND_PROVIDER_VERIFICATION_REQUIRED', 'REFUND_CASE_ALREADY_EXISTS', 'REFUND_CASE_NOT_ACTIONABLE', 'REFUND_CASE_DECISION_CONFLICT', 'MEMBERSHIP_DECISION_RACE', 'P2034', 'P2028', 'P40001', 'REDEMPTION_CONFIRMATION_RACE', 'REDEMPTION_CANCEL_RACE', 'REDEMPTION_REVERSAL_RACE'].includes(code) ? 409 : 500;
+  const status = code === 'DOCTOR_NATIONAL_ID_KEY_UNAVAILABLE' ? 503 : exception?.code === 'P2002' || code === 'P2002' ? 409 : code === 'RATE_LIMITED' ? 429 : ['UNAUTHORIZED', 'AUTH_FAILED', 'OTP_INVALID', 'REFRESH_INVALID', 'MOBILE_NOT_VERIFIED', 'PASSWORD_SETUP_REQUIRED'].includes(code) ? 401 : ['FORBIDDEN', 'CSRF_REJECTED', 'AUTH_CONFLICT'].includes(code) ? 403 : ['INVALID_MOBILE', 'INVALID_PROFILE', 'INVALID_NATIONAL_ID', 'INVALID_ADDRESS', 'INVALID_STATUS', 'INVALID_PROVIDER', 'INVALID_PROVIDER_STATUS', 'INVALID_PROVIDER_TRANSITION', 'INVALID_MEDICAL_COUNCIL_NUMBER', 'DOCTOR_NATIONAL_ID_REQUIRED', 'PROVIDER_NOT_EDITABLE', 'PAYMENT_NOT_CONFIRMABLE', 'PAYMENT_REFERENCE_REQUIRED', 'REFUND_REFERENCE_REQUIRED', 'REFUND_NOT_ALLOWED', 'REFUND_CASE_REASON_REQUIRED', 'REFUND_CASE_IDEMPOTENCY_KEY_REQUIRED', 'REFUND_CASE_NOT_ELIGIBLE', 'REFUND_CASE_DECISION_REASON_REQUIRED', 'MEMBERSHIP_REJECTION_REASON_REQUIRED', 'MEMBERSHIP_NOT_ACTIONABLE', 'MEMBERSHIP_ACTIVATION_GUARD_FAILED', 'MEMBERSHIP_DECISION_RACE', 'PAID_PURCHASE_MEMBERSHIP_INCONSISTENT', 'INVALID_PLAN', 'INVALID_DISCOUNT', 'INVALID_STATE_TRANSITION', 'INVALID_REDEMPTION_TRANSITION', 'IDEMPOTENCY_KEY_REQUIRED', 'REDEMPTION_TOKEN_REQUIRED', 'REDEMPTION_NOT_ELIGIBLE', 'REDEMPTION_NOT_CONFIRMABLE', 'REDEMPTION_NOT_CANCELLABLE', 'REDEMPTION_TOKEN_INVALID', 'REDEMPTION_EXPIRED', 'REVERSAL_REASON_REQUIRED', 'INSUFFICIENT_BALANCE', 'INVALID_WITHDRAWAL_AMOUNT', 'INVALID_FINANCIAL_AMOUNT', 'WITHDRAWAL_NOT_ALLOWED', 'WITHDRAWAL_NOT_ACTIONABLE'].includes(code) ? 400 : ['ADDRESS_NOT_FOUND', 'USER_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PLAN_NOT_FOUND', 'PURCHASE_NOT_FOUND', 'MEMBERSHIP_NOT_FOUND', 'REFUND_CASE_NOT_FOUND', 'REDEMPTION_NOT_FOUND', 'PLAN_OR_PROVIDER_NOT_FOUND', 'WITHDRAWAL_NOT_FOUND'].includes(code) ? 404 : ['DOCTOR_NATIONAL_ID_ALREADY_ASSIGNED', 'IDEMPOTENCY_CONFLICT', 'PAYMENT_CONFIRMATION_RACE', 'REFUND_RACE', 'REFUND_PROVIDER_VERIFICATION_REQUIRED', 'REFUND_CASE_ALREADY_EXISTS', 'REFUND_CASE_NOT_ACTIONABLE', 'REFUND_CASE_DECISION_CONFLICT', 'MEMBERSHIP_DECISION_RACE', 'P2034', 'P2028', 'P40001', 'REDEMPTION_CONFIRMATION_RACE', 'REDEMPTION_CANCEL_RACE', 'REDEMPTION_REVERSAL_RACE'].includes(code) ? 409 : 500;
   const safeStatus = ['P2034', 'P2028', 'P40001'].includes(exception?.code) || ['WITHDRAWAL_CONFLICT', 'REFUND_WALLET_FUNDS_UNAVAILABLE', 'COMMISSION_CURRENCY_CONTEXT_REQUIRED'].includes(code) ? 409 : status;
   response.status(safeStatus).json({ error: safeStatus === 500 ? 'INTERNAL_ERROR' : code });
 } });

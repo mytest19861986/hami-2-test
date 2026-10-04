@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { cookieAuth, normalizeMobile, prisma } from './auth.mjs';
 
 export function normalizeNationalId(value) {
@@ -7,6 +8,17 @@ export function normalizeNationalId(value) {
   const sum = nationalId.slice(0, 9).split('').reduce((total, digit, index) => total + Number(digit) * (10 - index), 0) % 11;
   if ((sum < 2 ? sum : 11 - sum) !== check) throw new Error('INVALID_NATIONAL_ID');
   return nationalId;
+}
+
+export function doctorNationalIdIdentity(value, { secret = process.env.DOCTOR_NATIONAL_ID_HMAC_KEY, keyVersion = 1 } = {}) {
+  const nationalId = normalizeNationalId(value);
+  if (typeof secret !== 'string' || Buffer.byteLength(secret, 'utf8') < 32 || !Number.isInteger(keyVersion) || keyVersion < 1) {
+    throw new Error('DOCTOR_NATIONAL_ID_KEY_UNAVAILABLE');
+  }
+  const nationalIdHmac = createHmac('sha256', secret)
+    .update(`hami:doctor-national-id:v${keyVersion}\0${nationalId}`, 'utf8')
+    .digest('hex');
+  return { nationalIdHmac, nationalIdKeyVersion: keyVersion };
 }
 
 export function requireUser(req) {

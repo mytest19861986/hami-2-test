@@ -21,6 +21,23 @@ test('B4 provider discovery exposes the specialty chain and safe states', () => 
   assert.match(page, /\/specialties/);
 });
 
+test('doctor national-ID eligibility UI submits transient input and renders only safe provider fields', () => {
+  const page = read('pages/providers/index.jsx');
+  assert.match(page, /providers\/eligibility\/doctor/);
+  assert.match(page, /provider-directory-empty/);
+  assert.match(page, /setNationalId\(''\)/);
+  assert.match(page, /eligibility\.provider\.displayName/);
+  assert.doesNotMatch(page, /nationalIdHmac|maskedNationalId/);
+  const onboarding = read('pages/providers/onboarding.jsx');
+  assert.match(onboarding, /provider-national-id/);
+  assert.match(onboarding, /provider-onboarding-form/);
+  assert.match(onboarding, /nationalId: ''/);
+  const admin = read('pages/admin/providers.jsx');
+  assert.match(admin, /providers\.doctor_national_id\.manage/);
+  assert.match(admin, /doctor-national-id/);
+  assert.doesNotMatch(admin, /nationalIdHmac|maskedNationalId/);
+});
+
 test('B4 provider detail renders only public response fields', () => {
   const page = read('pages/providers/[id].jsx');
   assert.match(page, /\/providers\/\$\{router\.query\.id\}/);
