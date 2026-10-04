@@ -25,7 +25,9 @@ Environment: local disposable Docker stack only (`http://localhost:8081/support`
 - API Support permission/projection unit tests: 2/2 PASS.
 - API TypeScript build: PASS.
 - Fresh API and Web Docker image builds: PASS.
-- `git diff --check`: PASS before the final field-minimization patch; rerun before commit.
-- Full API suite from the Windows host is not a valid result: DB-dependent tests target the Compose hostname `db:5432`, which is unavailable from the host. The full run therefore had environment-caused failures; API route authorization was separately exercised against the disposable in-network DB/API stack.
+- `git diff --check`: PASS on the current Wave 41 HEAD (`53d9f482d12870b3916765cafdd8801431f12e80`).
+- Full API suite, run inside the disposable API container with `HEALTH_BASE_URL=http://127.0.0.1:4000` and `--test-concurrency=1`: **117/117 PASS, 0 FAIL, 0 SKIP**.
+- Diagnostic parallel API run: 115/117 passed. The health test's default URL (`127.0.0.1:8080`) is not the API container's port, and the redemption HTTP matrix's shared-database aggregate-count assertion races other DB-mutating test files when Node runs them concurrently. Running those two tests alone with the correct health URL passed 2/2. This is test-harness isolation/configuration debt; no production-code regression was observed. The passing canonical result is the sequential in-container run above.
+- Running DB-dependent API tests from the Windows host is not a valid setup because they use Compose-only service names; run them inside the disposable in-network API container instead.
 
 Production remains LOCKED / NO-GO.
