@@ -6,6 +6,7 @@ Environment: local disposable Docker stack only (`http://localhost:8081/support`
 
 - SUPPORT has a seven-permission `support.*.read` allowlist. The server-side permission guard rejects all other capabilities for SUPPORT-only users, even if unrelated permissions are accidentally linked to the role.
 - The read-only routes return only fields rendered by the support UI. They omit user/provider/purchase identifiers, contact details, national identifiers, payment references, amounts, tokens, beneficiaries, and mutation controls.
+- Live local projection spot-check on `/api/v1/support/users`: 100 returned records; observed object keys were exactly `status`, `createdAt`, and `displayName`; no `phone`, national-ID, credential, or token key was present. The test login was logged out immediately afterward.
 - Local disposable-DB HTTP matrix: unauthenticated and Customer/Sales Partner requests to Support routes denied; SUPPORT allowed only on its seven read routes; an intentionally over-privileged SUPPORT role denied attempted user-status, commercial-settings, withdrawal-approval, refund, and redemption-reversal operations; SUPER_ADMIN behavior remains available.
 - No schema or migration changes.
 
