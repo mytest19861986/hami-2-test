@@ -14,6 +14,9 @@ export function isSupportOnly(roles) {
   return names.includes('SUPPORT') && !names.some((name) => ['SUPER_ADMIN', 'ADMIN'].includes(name));
 }
 export function canSupport(permission) { return allowed.has(permission); }
+export function supportGrantPermissionIdsOutsideAllowlist(grants) {
+  return grants.filter(({ permission }) => !allowed.has(`${permission.resource}.${permission.action}`)).map(({ permissionId }) => permissionId);
+}
 export function supportUserProjection({ status, createdAt, profile }) {
   return { status, createdAt, displayName: [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') || null };
 }

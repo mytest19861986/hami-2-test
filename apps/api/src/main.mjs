@@ -12,7 +12,7 @@ import { emitAuthorizationDecision } from './authorization-audit-emitter.mjs';
 import { auditModeDecision, modeDedupKey } from './authorization-audit-mode.mjs';
 import { assertComplianceActor, complianceProjection } from './compliance-access.mjs';
 import { createRedemptionService, publicRedemption } from './redemption-domain.mjs';
-import { canSupport, isSupportOnly, supportPermissions, supportUserProjection } from './support-access.mjs';
+import { canSupport, isSupportOnly, supportGrantPermissionIdsOutsideAllowlist, supportPermissions, supportUserProjection } from './support-access.mjs';
 
 const payoutProvider = new FakePayoutProvider();
 const redemptionService = createRedemptionService(prisma);
@@ -1287,6 +1287,11 @@ async function seedRbac() {
     const action = permissionName.slice(separator + 1);
     const permission = await prisma.permission.findUnique({ where: { resource_action: { resource, action } } });
     await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: support.id, permissionId: permission.id } }, update: {}, create: { roleId: support.id, permissionId: permission.id } });
+  }
+  const allowedSupportGrants = await prisma.rolePermission.findMany({ where: { roleId: support.id }, include: { permission: true } });
+  const unexpectedSupportPermissionIds = supportGrantPermissionIdsOutsideAllowlist(allowedSupportGrants);
+  if (unexpectedSupportPermissionIds.length) {
+    await prisma.rolePermission.deleteMany({ where: { roleId: support.id, permissionId: { in: unexpectedSupportPermissionIds } } });
   }
 }
 
