@@ -17,6 +17,7 @@ services:
     environment:
       PORT: 4000
       AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set to a non-public local/test secret}
+      DOCTOR_NATIONAL_ID_HMAC_KEY: ${DOCTOR_NATIONAL_ID_HMAC_KEY:-}
       ALLOW_DEV_OTP_CODE: ${ALLOW_DEV_OTP_CODE:-false}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
       AUDIT_AUTHORIZATION_EVENT_MODE: CANONICAL

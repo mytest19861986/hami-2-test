@@ -12,8 +12,8 @@ export function LoadingState({ label = 'در حال بارگذاری…' }) {
   return <p className="ui-state ui-state--loading" role="status" aria-live="polite">{label}</p>;
 }
 
-export function EmptyState({ title = 'داده‌ای وجود ندارد', children }) {
-  return <div className="ui-state ui-state--empty" role="status"><strong>{title}</strong>{children && <p>{children}</p>}</div>;
+export function EmptyState({ title = 'داده‌ای وجود ندارد', children, className = '' }) {
+  return <div className={`ui-state ui-state--empty ${className}`.trim()} role="status"><strong>{title}</strong>{children && <p>{children}</p>}</div>;
 }
 
 export function ErrorState({ title = 'بارگذاری ناموفق بود', onRetry }) {

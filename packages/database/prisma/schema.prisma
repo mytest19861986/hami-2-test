@@ -149,6 +149,8 @@ model DoctorProfile {
   providerId           String           @unique
   medicalCouncilNumber String           @unique
   specialtyId          String
+  nationalIdHmac       String?          @unique
+  nationalIdKeyVersion Int?
   provider             Provider         @relation(fields: [providerId], references: [id])
   specialty            MedicalSpecialty @relation(fields: [specialtyId], references: [id])
 
