@@ -241,7 +241,18 @@ test('authenticated profile and address lifecycle', async () => {
   assert.equal(invalid.status, 400);
   const updated = await fetch(`${base}/users/me/profile`, { method: 'PUT', headers, body: JSON.stringify({ firstName: 'Ali', lastName: 'Ahmadi', nationalId: '1234567891' }) });
   assert.equal(updated.status, 200);
-  assert.equal((await updated.json()).firstName, 'Ali');
+  const updatedProfile = await updated.json();
+  assert.equal(updatedProfile.firstName, 'Ali');
+  assert.equal(updatedProfile.maskedNationalId, '********91');
+  assert.equal('nationalId' in updatedProfile, false);
+  const meBeforeLegacyField = await fetch(`${base}/auth/me`, { headers }).then((response) => response.json());
+  await prisma.user.update({ where: { id: meBeforeLegacyField.id }, data: { nationalId: '1234567891' } });
+  const mePayload = await fetch(`${base}/auth/me`, { headers }).then((response) => response.json());
+  assert.equal('nationalId' in mePayload, false);
+  assert.equal(JSON.stringify(mePayload).includes('1234567891'), false);
+  const profileRead = await fetch(`${base}/users/me/profile`, { headers }).then((response) => response.json());
+  assert.equal(profileRead.maskedNationalId, '********91');
+  assert.equal('nationalId' in profileRead, false);
 
   const created = await fetch(`${base}/users/me/addresses`, { method: 'POST', headers, body: JSON.stringify({ title: 'خانه', recipientName: 'Ali Ahmadi', phone: '09120000003', provinceId: province.id, cityId: city.id, postalCode: '1234567890', line1: 'خیابان نمونه', isDefault: true }) });
   assert.equal(created.status, 201);
@@ -282,6 +293,11 @@ test('admin user summary, detail and status permissions', async () => {
   const login = await fetch(`${base}/auth/login/password`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone, password: 'TEMP-Dev-Password-2026!' }) });
   const tokens = await login.json();
   const user = await prisma.user.findUnique({ where: { phone: `+98${phone.slice(1)}` } });
+  const firstNine = String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, '0');
+  const checksumSum = firstNine.split('').reduce((sum, digit, index) => sum + Number(digit) * (10 - index), 0) % 11;
+  const testNationalId = firstNine + String(checksumSum < 2 ? checksumSum : 11 - checksumSum);
+  await prisma.userProfile.upsert({ where: { userId: user.id }, update: { firstName: 'Admin', lastName: 'Privacy', nationalId: testNationalId }, create: { userId: user.id, firstName: 'Admin', lastName: 'Privacy', nationalId: testNationalId } });
+  await prisma.user.update({ where: { id: user.id }, data: { nationalId: testNationalId } });
   const role = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } });
   await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: role.id } }, update: {}, create: { userId: user.id, roleId: role.id } });
   const headers = { authorization: `Bearer ${tokens.accessToken}` };
@@ -289,6 +305,7 @@ test('admin user summary, detail and status permissions', async () => {
   assert.equal(list.status, 200);
   const summaries = await list.json();
   assert.ok(summaries.every((item) => !('passwordHash' in item) && !('refreshTokenHash' in item)));
+  assert.ok(summaries.every((item) => !('nationalId' in item)));
   const detail = await fetch(`${base}/admin/users/${user.id}`, { headers });
   assert.equal(detail.status, 200);
   const detailPayload = await detail.json();
@@ -297,6 +314,9 @@ test('admin user summary, detail and status permissions', async () => {
   assert.equal('otpChallenges' in detailPayload, false);
   assert.equal('sessions' in detailPayload, false);
   assert.equal('nationalId' in detailPayload, false);
+  assert.equal('nationalId' in detailPayload.profile, false);
+  assert.equal(detailPayload.profile.maskedNationalId, '********' + testNationalId.slice(-2));
+  assert.equal(JSON.stringify(detailPayload).includes(testNationalId), false);
   const status = await fetch(`${base}/admin/users/${user.id}/status`, { method: 'PATCH', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ status: 'ACTIVE' }) });
   assert.equal(status.status, 200);
   await prisma.$disconnect();

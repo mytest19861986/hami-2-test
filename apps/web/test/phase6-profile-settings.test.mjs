@@ -6,7 +6,8 @@ const source = fs.readFileSync(new URL('../pages/profile.jsx', import.meta.url),
 
 test('profile settings uses the existing backend contract and masks sensitive identity data', () => {
   assert.match(source, /users\/me\/profile/);
-  assert.match(source, /maskNationalId/);
+  assert.match(source, /maskedNationalId/);
+  assert.doesNotMatch(source, /data\?\.nationalId/);
   assert.match(source, /اطلاعات حساس/);
   assert.doesNotMatch(source, /role|permission|localStorage|sessionStorage/);
 });

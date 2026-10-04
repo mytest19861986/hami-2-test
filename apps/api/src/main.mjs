@@ -35,6 +35,15 @@ function parseFinancialInteger(value, { positive = false, nonNegative = false } 
 function adminSummary(user) {
   return { id: user.id, phone: user.phone, firstName: user.profile?.firstName ?? null, lastName: user.profile?.lastName ?? null, maskedNationalId: maskNationalId(user.profile?.nationalId), status: user.status, roles: user.roles?.map((link) => link.role.name) ?? [], createdAt: user.createdAt };
 }
+function profileView(profile) {
+  if (!profile) return null;
+  return {
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    birthDate: profile.birthDate,
+    maskedNationalId: maskNationalId(profile.nationalId),
+  };
+}
 const refundRequestReasonCodes = new Set(['ACTIVATION_REJECTED', 'DUPLICATE_PURCHASE', 'SERVICE_NOT_DELIVERED', 'OTHER_POLICY_REASON']);
 const refundDecisionReasonCodes = new Set(['NOT_ELIGIBLE', 'DUPLICATE_REQUEST', 'POLICY_REQUIREMENT_NOT_MET', 'OTHER_POLICY_REASON']);
 function refundCaseView(row, includePurchase = false) {
@@ -132,7 +141,7 @@ class AuthController {
   async me(req) {
     const { auth } = cookieAuth(req);
     if (!auth) throw new Error('UNAUTHORIZED');
-    const user = await prisma.user.findUnique({ where: { id: auth.sub }, select: { id: true, phone: true, nationalId: true, status: true, roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
+    const user = await prisma.user.findUnique({ where: { id: auth.sub }, select: { id: true, phone: true, status: true, roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
     if (!user || user.status !== 'ACTIVE') throw new Error('UNAUTHORIZED');
     return user;
   }
@@ -145,7 +154,7 @@ class AuthController {
     await this.currentWithPermission(req, 'users.read');
     const user = await prisma.user.findUnique({ where: { id: req.params.id }, include: { profile: true, addresses: { include: { province: true, city: true } }, roles: { include: { role: true } } } });
     if (!user) throw new Error('USER_NOT_FOUND');
-    return { ...adminSummary(user), profile: user.profile, addresses: user.addresses, roles: user.roles.map((link) => link.role.name) };
+    return { ...adminSummary(user), profile: profileView(user.profile), addresses: user.addresses, roles: user.roles.map((link) => link.role.name) };
   }
   async updateUserStatus(body, req) {
     const permission = body.status === 'DISABLED' ? 'users.disable' : 'users.update';
@@ -172,7 +181,7 @@ class AuthController {
   async logout(body, req, res) { assertOriginAndCsrf(req); const { auth } = cookieAuth(req); if (!auth) throw new Error('UNAUTHORIZED'); if (body.sessionId) await revokeSession(body.sessionId, auth.sub); else await prisma.sessionFamily.updateMany({ where: { userId: auth.sub, status: 'ACTIVE' }, data: { status: 'REVOKED', revocationReason: 'LOGOUT' } }); clearSessionCookies(res); return { revoked: true }; }
   async getProfile(req) {
     const user = await requireUser(req);
-    return prisma.userProfile.findUnique({ where: { userId: user.id } });
+    return profileView(await prisma.userProfile.findUnique({ where: { userId: user.id } }));
   }
   async updateProfile(body, req) {
     const user = await requireUser(req);
@@ -182,7 +191,7 @@ class AuthController {
     await audit(user.id, 'PROFILE_UPDATED', 'UserProfile');
     if (!previous?.nationalId && profile.nationalId) await audit(user.id, 'NATIONAL_ID_SET', 'UserProfile');
     if (previous?.nationalId && previous.nationalId !== profile.nationalId) await audit(user.id, 'NATIONAL_ID_CHANGED', 'UserProfile');
-    return profile;
+    return profileView(profile);
   }
   async listAddresses(req) {
     const user = await requireUser(req);

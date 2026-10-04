@@ -14,6 +14,16 @@ async function register(phone) {
   return login.accessToken;
 }
 
+function validNationalId(seed) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const digits = String(Number(seed) + attempt).replace(/\D/g, '').slice(-9).padStart(9, '0');
+    const sum = digits.split('').reduce((total, digit, index) => total + Number(digit) * (10 - index), 0) % 11;
+    const candidate = digits + String(sum < 2 ? sum : 11 - sum);
+    if (!/^([0-9])\1{9}$/.test(candidate)) return candidate;
+  }
+  throw new Error('TEST_NATIONAL_ID_GENERATION_FAILED');
+}
+
 test('HTTP concurrent payment confirmation creates one membership and preserves PAID state', async () => {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const accessToken = await register(`0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
@@ -139,12 +149,32 @@ test('Wave 06 authorization, replay, and cancelled-state matrix fails closed', a
   assert.equal(await prisma.benefitMembership.count({ where: { purchaseId: cancelled.id } }), 0);
 });
 
-test('Wave 07 customer eligibility is session-scoped, provider-state guarded, and read-only', async () => {
+test('Wave 07/Wave 39 eligibility is session-scoped, provider-state guarded, and National-ID private', async () => {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const tokenA = await register(`0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
   const tokenB = await register(`0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`);
   const userA = await fetch(`${base}/auth/me`, { headers: { authorization: `Bearer ${tokenA}` } }).then((r) => r.json());
-  const provider = await prisma.provider.findFirstOrThrow({ where: { status: 'APPROVED' } });
+  const userB = await fetch(`${base}/auth/me`, { headers: { authorization: `Bearer ${tokenB}` } }).then((r) => r.json());
+  const province = await prisma.province.findFirstOrThrow();
+  const city = await prisma.city.findFirstOrThrow({ where: { provinceId: province.id } });
+  const specialty = await prisma.medicalSpecialty.findFirstOrThrow();
+  const provider = await prisma.provider.create({ data: {
+    type: 'DOCTOR', status: 'APPROVED', displayName: `Wave 39 lookup provider ${suffix}`,
+    provinceId: province.id, cityId: city.id, address: 'local test', phone: '09120000008',
+    memberships: { create: { userId: userB.id, role: 'STAFF' } },
+    doctorProfile: { create: { medicalCouncilNumber: `W39-MAIN-${suffix}`, specialtyId: specialty.id } },
+  } });
+  const otherProvider = await prisma.provider.create({ data: {
+    type: 'DOCTOR', status: 'APPROVED', displayName: `Wave 39 other provider ${suffix}`,
+    provinceId: provider.provinceId, cityId: provider.cityId, address: 'local test', phone: '09120000009',
+    memberships: { create: { userId: userA.id, role: 'OWNER' } },
+    doctorProfile: { create: { medicalCouncilNumber: `W39-${suffix}`, specialtyId: specialty.id } },
+  } });
+  assert.notEqual(otherProvider.id, provider.id);
+  const customerNationalId = validNationalId(Date.now());
+  const legacyOnlyNationalId = validNationalId(Date.now() + 1);
+  await prisma.userProfile.create({ data: { userId: userA.id, firstName: 'Wave', lastName: 'Customer', nationalId: customerNationalId } });
+  await prisma.user.update({ where: { id: userB.id }, data: { nationalId: legacyOnlyNationalId } });
   const plan = await prisma.benefitPlan.create({ data: { code: `W07-${suffix}`, name: 'Wave 07 eligibility', priceAmount: 4000n, currency: 'IRR', validityDays: 30, status: 'ACTIVE' } });
   await prisma.planProviderBenefit.create({ data: { planId: plan.id, providerId: provider.id, discountType: 'PERCENT', discountValue: 15 } });
   const purchase = await prisma.planPurchase.create({ data: { userId: userA.id, planId: plan.id, amountSnapshot: plan.priceAmount, currencySnapshot: plan.currency, validityDaysSnapshot: plan.validityDays, status: 'PAID', paidAt: new Date() } });
@@ -166,6 +196,37 @@ test('Wave 07 customer eligibility is session-scoped, provider-state guarded, an
   const bResult = await fetch(url, { headers: { authorization: `Bearer ${tokenB}` } }).then((r) => r.json());
   assert.equal(bResult.eligible, false);
   assert.equal(JSON.stringify(bResult).includes(userA.id), false);
+
+  const checkUrl = `${base}/providers/${provider.id}/eligibility/check`;
+  const authorizedCheck = await fetch(checkUrl, {
+    method: 'POST', headers: { authorization: `Bearer ${tokenB}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ nationalId: customerNationalId }),
+  });
+  assert.equal(authorizedCheck.status, 201);
+  const authorizedResult = await authorizedCheck.json();
+  assert.equal(authorizedResult.eligible, true);
+  assert.equal(authorizedResult.memberDisplayName, 'Wave Customer');
+  assert.equal(JSON.stringify(authorizedResult).includes(customerNationalId), false);
+  assert.equal('nationalId' in authorizedResult, false);
+
+  const crossProvider = await fetch(checkUrl, {
+    method: 'POST', headers: { authorization: `Bearer ${tokenA}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ nationalId: customerNationalId }),
+  });
+  assert.equal(crossProvider.status, 403, 'membership at a different provider must not authorize lookup');
+
+  const legacyOnlyCheck = await fetch(checkUrl, {
+    method: 'POST', headers: { authorization: `Bearer ${tokenB}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ nationalId: legacyOnlyNationalId }),
+  });
+  assert.equal(legacyOnlyCheck.status, 201);
+  assert.deepEqual(await legacyOnlyCheck.json(), { eligible: false }, 'legacy User.nationalId must not be matched');
+
+  const auditRows = await prisma.auditLog.findMany({ where: { actorUserId: userB.id, entity: 'Eligibility' }, orderBy: { createdAt: 'desc' }, take: 10 });
+  const auditJson = JSON.stringify(auditRows);
+  assert.equal(auditJson.includes(customerNationalId), false);
+  assert.equal(auditJson.includes(legacyOnlyNationalId), false);
+  assert.equal(auditJson.includes(userA.id), false);
   const after = await prisma.$transaction([
     prisma.planPurchase.count(), prisma.benefitMembership.count(), prisma.planProviderBenefit.count(), prisma.provider.count(),
   ]);

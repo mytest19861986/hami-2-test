@@ -1,8 +1,8 @@
 # User Profile and Address
 
-HC-W2-01 keeps commercial identity separate from authentication. `UserProfile` is a one-to-one extension of `User` and contains only first name, last name, optional birth date, and an optional unique national ID.
+HC-W2-01 keeps commercial identity separate from authentication. `UserProfile` is the one-to-one source of truth for first name, last name, optional birth date, and optional unique national ID. The nullable `User.nationalId` field is legacy-only and is not an eligibility source of truth.
 
-National IDs are normalized to ten digits and validated with the Iranian checksum before persistence. The value is nullable until profile completion and must not be exposed in logs or generic audit metadata.
+National IDs are normalized by trimming and removing whitespace/hyphens, then requiring ten ASCII digits, rejecting repeated-digit values, and validating the Iranian checksum before persistence. `UserProfile.nationalId` is unique. The raw value is used only for authorized matching and persistence; profile and admin APIs expose only `maskedNationalId`, and `/auth/me` omits it. It must not appear in logs or generic audit metadata.
 
 `Address` is a user-owned one-to-many entity. Each address has a recipient, normalized phone, `provinceId`, `cityId`, ten-digit postal code, address lines, and an optional default flag. `Province` and `City` are shared Geography entities, with deterministic local Tehran seed data and idempotent-safe unique keys. All profile and address routes require an active authenticated user and scope updates/deletes by `userId`; default-address changes are transactional.
 
