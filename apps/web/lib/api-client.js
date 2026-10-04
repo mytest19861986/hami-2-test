@@ -8,7 +8,7 @@ export class ApiError extends Error {
 export function mapApiError(status, payload) {
   const code = payload?.error || 'NETWORK_ERROR';
   const messages = { 400: 'اطلاعات واردشده معتبر نیست.', 401: 'نشست شما معتبر نیست.', 403: 'دسترسی به این بخش مجاز نیست.', 409: 'این درخواست با وضعیت فعلی تعارض دارد.', 429: 'تعداد درخواست‌ها زیاد است؛ دوباره تلاش کنید.' };
-  const codeMessages = { REDEMPTION_TOKEN_INVALID: 'کد واردشده معتبر نیست.', REDEMPTION_EXPIRED: 'کد استفاده منقضی شده است.', REDEMPTION_NOT_CONFIRMABLE: 'این درخواست دیگر قابل تأیید نیست.', REDEMPTION_NOT_CANCELLABLE: 'فقط درخواست‌های در انتظار تأیید قابل لغو هستند.', REDEMPTION_NOT_ELIGIBLE: 'این عضویت یا مزیت دیگر معتبر نیست.', REVERSAL_REASON_REQUIRED: 'ثبت دلیل برگشت الزامی است.' };
+  const codeMessages = { REDEMPTION_TOKEN_INVALID: 'کد واردشده معتبر نیست.', REDEMPTION_EXPIRED: 'کد استفاده منقضی شده است.', REDEMPTION_NOT_CONFIRMABLE: 'این درخواست دیگر قابل تأیید نیست.', REDEMPTION_NOT_CANCELLABLE: 'فقط درخواست‌های در انتظار تأیید قابل لغو هستند.', REDEMPTION_NOT_ELIGIBLE: 'این عضویت یا مزیت دیگر معتبر نیست.', REVERSAL_REASON_REQUIRED: 'ثبت دلیل برگشت الزامی است.', REFUND_PROVIDER_VERIFICATION_REQUIRED: 'تأیید مستقل PSP موجود نیست؛ وضعیت خرید و همه آثار مالی بدون تغییر ماند.', REFUND_CASE_ALREADY_EXISTS: 'برای این خرید قبلاً پرونده ثبت شده است.', REFUND_CASE_NOT_ELIGIBLE: 'فقط خرید پرداخت‌شده با فعال‌سازی ردشده واجد ثبت این پرونده است.', REFUND_CASE_NOT_ACTIONABLE: 'این پرونده دیگر قابل تصمیم‌گیری نیست.', REFUND_CASE_DECISION_CONFLICT: 'یک تصمیم هم‌زمان ثبت شده؛ وضعیت پرونده را دوباره بخوانید.' };
   return new ApiError(status, code, codeMessages[code] || messages[status] || 'ارتباط با سرویس ممکن نیست.');
 }
 

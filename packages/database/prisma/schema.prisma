@@ -36,6 +36,8 @@ model User {
   commissions                 SalesCommission[]
   authorizationAuditEvents    AuthorizationAuditEvent[]
   redemptionsAsCustomer       Redemption[]              @relation("RedemptionCustomer")
+  refundCasesRequested        RefundReconciliationCase[] @relation("RefundCaseRequester")
+  refundCasesReviewed         RefundReconciliationCase[] @relation("RefundCaseReviewer")
 }
 
 model UserProfile {
@@ -190,6 +192,12 @@ enum PurchaseStatus {
   REFUNDED
 }
 
+enum RefundCaseStatus {
+  REQUESTED
+  APPROVED_PENDING_EXECUTION
+  REJECTED
+}
+
 enum BenefitMembershipStatus {
   PENDING
   ACTIVE
@@ -291,9 +299,30 @@ model PlanPurchase {
   membership            BenefitMembership?
   referralQualification ReferralAttribution?
   salesCommission       SalesCommission?
+  refundCase            RefundReconciliationCase?
 
   @@index([userId, createdAt])
   @@index([planId, status])
+}
+
+model RefundReconciliationCase {
+  id                    String          @id @default(uuid())
+  purchaseId            String          @unique
+  requestedByUserId     String
+  status                RefundCaseStatus @default(REQUESTED)
+  requestReasonCode     String
+  requestIdempotencyKey String          @unique
+  decisionByUserId      String?
+  decisionReasonCode    String?
+  requestedAt           DateTime        @default(now())
+  decidedAt             DateTime?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  purchase              PlanPurchase    @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  requester             User            @relation("RefundCaseRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  reviewer              User?           @relation("RefundCaseReviewer", fields: [decisionByUserId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
 }
 
 model BenefitMembership {

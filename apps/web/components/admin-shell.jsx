@@ -3,7 +3,7 @@ import { createApiClient, can, revokeCurrentSession } from '../lib/api-client';
 import { clearSession, normalizeSessionUser, readSession, writeSession } from '../lib/session';
 import { AuthenticatedShell } from './authenticated-shell';
 
-const links = [['/admin', 'نمای کلی'], ['/admin/reporting', 'گزارش عملیاتی'], ['/admin/wallet-reporting', 'گزارش کیف پول'], ['/admin/eligibility-reporting', 'گزارش Eligibility'], ['/admin/users', 'کاربران'], ['/admin/providers', 'پزشکان'], ['/admin/redemptions', 'استفاده از مزیت'], ['/admin/plans', 'طرح‌ها'], ['/admin/purchases', 'خریدها'], ['/admin/memberships', 'عضویت‌ها'], ['/admin/commissions', 'کمیسیون‌ها'], ['/admin/withdrawals', 'برداشت‌ها'], ['/admin/settings', 'تنظیمات'], ['section', 'دسترسی سریع'], ['/dashboard', 'پنل کاربر']];
+const links = [['/admin', 'نمای کلی'], ['/admin/reporting', 'گزارش عملیاتی'], ['/admin/wallet-reporting', 'گزارش کیف پول'], ['/admin/eligibility-reporting', 'گزارش Eligibility'], ['/admin/users', 'کاربران'], ['/admin/providers', 'پزشکان'], ['/admin/redemptions', 'استفاده از مزیت'], ['/admin/plans', 'طرح‌ها'], ['/admin/purchases', 'خریدها'], ['/admin/refund-cases', 'درخواست‌های تطبیق خرید'], ['/admin/memberships', 'عضویت‌ها'], ['/admin/commissions', 'کمیسیون‌ها'], ['/admin/withdrawals', 'برداشت‌ها'], ['/admin/settings', 'تنظیمات'], ['section', 'دسترسی سریع'], ['/dashboard', 'پنل کاربر']];
 
 export function AdminShell({ title, permission, children }) {
   const [session, setSession] = useState(null);

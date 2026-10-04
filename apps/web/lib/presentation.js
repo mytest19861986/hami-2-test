@@ -5,6 +5,7 @@ export const statusLabels = {
   PAID: 'پرداخت‌شده', CANCELLED: 'لغوشده', FROZEN: 'منجمد و نیازمند بررسی', FAILED: 'ناموفق', PAYOUT_PENDING: 'در حال پرداخت', PAYOUT_UNKNOWN: 'در حال بررسی؛ اقدامی لازم نیست', ATTRIBUTED: 'ثبت‌شده',
   QUALIFIED: 'واجد شرایط', REWARDED: 'پاداش‌داده‌شده', REVERSED: 'برگشت‌خورده', EXPIRED: 'منقضی شده',
   PENDING_PAYMENT: 'در انتظار پرداخت', COMPLETED: 'تکمیل‌شده', REFUNDED: 'بازپرداخت‌شده',
+  REQUESTED: 'درخواست تطبیق ثبت‌شده', APPROVED_PENDING_EXECUTION: 'تأیید داخلی؛ اجرای بازپرداخت انجام نشده',
 };
 
 export function labelStatus(value) { return statusLabels[value] || value || '—'; }

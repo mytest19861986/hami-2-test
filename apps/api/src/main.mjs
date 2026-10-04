@@ -35,6 +35,31 @@ function parseFinancialInteger(value, { positive = false, nonNegative = false } 
 function adminSummary(user) {
   return { id: user.id, phone: user.phone, firstName: user.profile?.firstName ?? null, lastName: user.profile?.lastName ?? null, maskedNationalId: maskNationalId(user.profile?.nationalId), status: user.status, roles: user.roles?.map((link) => link.role.name) ?? [], createdAt: user.createdAt };
 }
+const refundRequestReasonCodes = new Set(['ACTIVATION_REJECTED', 'DUPLICATE_PURCHASE', 'SERVICE_NOT_DELIVERED', 'OTHER_POLICY_REASON']);
+const refundDecisionReasonCodes = new Set(['NOT_ELIGIBLE', 'DUPLICATE_REQUEST', 'POLICY_REQUIREMENT_NOT_MET', 'OTHER_POLICY_REASON']);
+function refundCaseView(row, includePurchase = false) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    purchaseId: row.purchaseId,
+    status: row.status,
+    requestReasonCode: row.requestReasonCode,
+    requestedAt: row.requestedAt,
+    decisionReasonCode: row.decisionReasonCode,
+    decidedAt: row.decidedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    ...(includePurchase && row.purchase ? { purchase: {
+      id: row.purchase.id,
+      status: row.purchase.status,
+      amountSnapshot: row.purchase.amountSnapshot.toString(),
+      currencySnapshot: row.purchase.currencySnapshot,
+      paidAt: row.purchase.paidAt,
+      activationStatus: row.purchase.membership?.status ?? null,
+      planName: row.purchase.plan?.name ?? null,
+    } } : {}),
+  };
+}
 
 class HealthController {
   health() { return { status: 'ok' }; }
@@ -291,6 +316,7 @@ function purchaseView(item) {
     startsAt: membership?.startsAt ?? null,
     endsAt: membership?.endsAt ?? null,
     refundedAt: item.refundedAt ?? null,
+    refundCase: refundCaseView(item.refundCase),
     paidAt: item.paidAt,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt
@@ -306,7 +332,7 @@ class BenefitController {
     const row = await prisma.planPurchase.create({ data: { userId: user.id, planId: plan.id, amountSnapshot: plan.priceAmount, currencySnapshot: plan.currency, validityDaysSnapshot: plan.validityDays } });
     await audit(user.id, 'PURCHASE_CREATED', 'PlanPurchase'); return purchaseView(row);
   }
-  async myPurchases(req) { const user = await requireUser(req); const rows = await prisma.planPurchase.findMany({ where: { userId: user.id }, include: { membership: true }, orderBy: { createdAt: 'desc' } }); return rows.map(purchaseView); }
+  async myPurchases(req) { const user = await requireUser(req); const rows = await prisma.planPurchase.findMany({ where: { userId: user.id }, include: { membership: true, refundCase: true }, orderBy: { createdAt: 'desc' } }); return rows.map(purchaseView); }
   async myMemberships(req) { const user = await requireUser(req); return prisma.benefitMembership.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } }); }
   async adminPlans(req) { await new AuthController().currentWithPermission(req, 'plans.read'); const rows = await prisma.benefitPlan.findMany({ include: { providerBenefits: true }, orderBy: { createdAt: 'desc' } }); return rows.map(planView); }
   async adminPlan(req) { await new AuthController().currentWithPermission(req, 'plans.read'); const row = await prisma.benefitPlan.findUnique({ where: { id: req.params.id }, include: { providerBenefits: true } }); if (!row) throw new Error('PLAN_NOT_FOUND'); return planView(row); }
@@ -325,7 +351,7 @@ class BenefitController {
     const actor = await new AuthController().currentWithPermission(req, 'plans.update'); const current = await prisma.benefitPlan.findUnique({ where: { id: req.params.id } }); if (!current) throw new Error('PLAN_NOT_FOUND');
     assertPlanTransition(current.status, body.status); const row = await prisma.benefitPlan.update({ where: { id: current.id }, data: { status: body.status } }); await audit(actor.id, 'BENEFIT_PLAN_STATUS_CHANGED', 'BenefitPlan'); return planView(row);
   }
-  async adminPurchases(req) { await new AuthController().currentWithPermission(req, 'purchases.read'); const rows = await prisma.planPurchase.findMany({ include: { membership: true }, orderBy: { createdAt: 'desc' } }); return rows.map(purchaseView); }
+  async adminPurchases(req) { await new AuthController().currentWithPermission(req, 'purchases.read'); const rows = await prisma.planPurchase.findMany({ include: { membership: true, refundCase: true }, orderBy: { createdAt: 'desc' } }); return rows.map(purchaseView); }
   async adminMemberships(req) { await new AuthController().currentWithPermission(req, 'memberships.read'); return prisma.benefitMembership.findMany({ include: { purchase: { select: { status: true, amountSnapshot: true, currencySnapshot: true, paidAt: true } }, plan: { select: { name: true } } }, orderBy: { createdAt: 'desc' } }); }
   async decideMembership(body, req, decision) {
     const permission = decision === 'APPROVE' ? 'memberships.approve' : 'memberships.reject';
@@ -404,50 +430,79 @@ class BenefitController {
     return result;
   }
   async refund(body, req) {
-    const actor = await new AuthController().currentWithPermission(req, 'purchases.refund');
-    const refundReference = typeof body?.refundReference === 'string' ? body.refundReference.trim() : '';
-    if (!refundReference || refundReference.length > 160) throw new Error('REFUND_REFERENCE_REQUIRED');
-    const result = await prisma.$transaction(async (tx) => {
-      const purchase = await tx.planPurchase.findUnique({ where: { id: req.params.id }, include: { membership: true } });
-      if (!purchase) throw new Error('PURCHASE_NOT_FOUND');
-      if (purchase.status === 'REFUNDED') { if (purchase.refundReference !== refundReference) throw new Error('IDEMPOTENCY_CONFLICT'); return purchase; }
-      if (purchase.status !== 'PAID') throw new Error('REFUND_NOT_ALLOWED');
-      const now = new Date();
-      const changed = await tx.planPurchase.updateMany({ where: { id: purchase.id, status: 'PAID' }, data: { status: 'REFUNDED', refundReference, refundedAt: now, refundedByUserId: actor.id } });
-      if (changed.count !== 1) throw new Error('REFUND_RACE');
-      if (purchase.membership && ['ACTIVE', 'PENDING', 'REJECTED'].includes(purchase.membership.status)) await tx.benefitMembership.update({ where: { id: purchase.membership.id }, data: { status: 'CANCELLED' } });
-      const attribution = await tx.referralAttribution.findUnique({ where: { qualifyingPurchaseId: purchase.id } });
-      if (attribution?.status === 'REWARDED') {
-        const reward = await tx.walletTransaction.findUnique({ where: { idempotencyKey: `REFERRAL_REWARD:${attribution.id}` } });
-        if (reward) {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reward.walletId}))`;
-          const reversalKey = `REFERRAL_REVERSAL:${attribution.id}`;
-          const existingReversal = await tx.walletTransaction.findUnique({ where: { idempotencyKey: reversalKey } });
-          if (!existingReversal) {
-            let ledger = await tx.walletTransaction.aggregate({ where: { walletId: reward.walletId }, _sum: { amount: true } });
-            let projected = (ledger._sum.amount ?? 0n) - reward.amount;
-            if (projected < 0n) {
-              const releasable = await tx.withdrawalRequest.findMany({ where: { walletId: reward.walletId, status: { in: ['PENDING', 'APPROVED'] } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
-              for (const withdrawal of releasable) {
-                if (projected >= 0n) break;
-                await tx.walletTransaction.create({ data: { walletId: reward.walletId, type: 'WITHDRAWAL_RELEASE', amount: withdrawal.amount, currency: reward.currency, referenceType: 'WithdrawalRequest', referenceId: withdrawal.id, idempotencyKey: `WITHDRAWAL_RELEASE:${withdrawal.id}` } });
-                await tx.withdrawalRequest.update({ where: { id: withdrawal.id }, data: { status: 'CANCELLED', rejectedAt: new Date() } });
-                projected += withdrawal.amount;
-              }
-            }
-            if (projected < 0n) throw new Error('REFUND_WALLET_FUNDS_UNAVAILABLE');
-            await tx.walletTransaction.create({ data: { walletId: reward.walletId, type: 'REFERRAL_REVERSAL', amount: -reward.amount, currency: reward.currency, referenceType: 'ReferralAttribution', referenceId: attribution.id, idempotencyKey: reversalKey } });
-          }
-        }
-        await tx.referralAttribution.update({ where: { id: attribution.id }, data: { status: 'REVERSED' } });
-      }
-      await tx.salesCommission.updateMany({ where: { purchaseId: purchase.id, status: { in: ['PENDING_APPROVAL', 'APPROVED'] } }, data: { status: 'REVERSED', reversedAt: new Date() } });
-      const updated = await tx.planPurchase.findUnique({ where: { id: purchase.id }, include: { membership: true } });
-      await audit(actor.id, 'PURCHASE_REFUNDED', 'PlanPurchase', { entityId: purchase.id, metadata: { from: 'PAID', to: 'REFUNDED', refundReferenceFingerprint: referenceFingerprint(refundReference), evidenceType: 'OPERATOR_ATTESTED_EXTERNAL_REFUND' }, idempotencyKey: `PURCHASE_REFUNDED:${purchase.id}` }, tx);
-      return updated;
-    });
-    return purchaseView(result);
+    await new AuthController().currentWithPermission(req, 'purchases.refund');
+    throw new Error('REFUND_PROVIDER_VERIFICATION_REQUIRED');
   }
+  async requestRefundCase(body, req) {
+    const actor = await requireUser(req);
+    const requestReasonCode = typeof body?.reasonCode === 'string' ? body.reasonCode.trim() : '';
+    const requestIdempotencyKey = typeof req.headers['idempotency-key'] === 'string' ? req.headers['idempotency-key'].trim() : typeof body?.idempotencyKey === 'string' ? body.idempotencyKey.trim() : '';
+    if (!refundRequestReasonCodes.has(requestReasonCode)) throw new Error('REFUND_CASE_REASON_REQUIRED');
+    if (!requestIdempotencyKey || requestIdempotencyKey.length > 200) throw new Error('REFUND_CASE_IDEMPOTENCY_KEY_REQUIRED');
+    rateLimit(`refund-case-request:${actor.id}:${req.ip ?? 'unknown'}`);
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        const purchase = await tx.planPurchase.findFirst({ where: { id: req.params.id, userId: actor.id }, include: { membership: true } });
+        if (!purchase) throw new Error('PURCHASE_NOT_FOUND');
+        const existing = await tx.refundReconciliationCase.findUnique({ where: { purchaseId: purchase.id } });
+        if (existing) {
+          if (existing.requestedByUserId === actor.id && existing.requestIdempotencyKey === requestIdempotencyKey && existing.requestReasonCode === requestReasonCode) return existing;
+          throw new Error('REFUND_CASE_ALREADY_EXISTS');
+        }
+        if (purchase.status !== 'PAID' || purchase.membership?.status !== 'REJECTED') throw new Error('REFUND_CASE_NOT_ELIGIBLE');
+        const created = await tx.refundReconciliationCase.create({ data: { purchaseId: purchase.id, requestedByUserId: actor.id, requestReasonCode, requestIdempotencyKey } });
+        await audit(actor.id, 'REFUND_CASE_REQUESTED', 'RefundReconciliationCase', { entityId: created.id, metadata: { purchaseId: purchase.id, from: null, to: created.status, reasonCode: requestReasonCode, evidenceType: 'INTERNAL_REQUEST_ONLY' }, idempotencyKey: `REFUND_CASE_REQUESTED:${created.id}` }, tx);
+        return created;
+      });
+      return refundCaseView(result);
+    } catch (error) {
+      if (error?.code === 'P2002') {
+        const existing = await prisma.refundReconciliationCase.findUnique({ where: { purchaseId: req.params.id } });
+        if (existing?.requestedByUserId === actor.id && existing.requestIdempotencyKey === requestIdempotencyKey && existing.requestReasonCode === requestReasonCode) return refundCaseView(existing);
+        throw new Error('REFUND_CASE_ALREADY_EXISTS');
+      }
+      throw error;
+    }
+  }
+  async adminRefundCases(req) {
+    await new AuthController().currentWithPermission(req, 'purchases.read');
+    const rows = await prisma.refundReconciliationCase.findMany({ include: { purchase: { include: { membership: true, plan: { select: { name: true } } } } }, orderBy: { createdAt: 'desc' } });
+    return rows.map((row) => refundCaseView(row, true));
+  }
+  async adminRefundCase(req) {
+    await new AuthController().currentWithPermission(req, 'purchases.read');
+    const row = await prisma.refundReconciliationCase.findUnique({ where: { id: req.params.id }, include: { purchase: { include: { membership: true, plan: { select: { name: true } } } } } });
+    if (!row) throw new Error('REFUND_CASE_NOT_FOUND');
+    return refundCaseView(row, true);
+  }
+  async decideRefundCase(body, req, decision) {
+    const actor = await new AuthController().currentWithPermission(req, 'purchases.refund');
+    const decisionReasonCode = decision === 'APPROVE' ? 'APPROVED' : typeof body?.reasonCode === 'string' ? body.reasonCode.trim() : '';
+    if (decision === 'REJECT' && !refundDecisionReasonCodes.has(decisionReasonCode)) throw new Error('REFUND_CASE_DECISION_REASON_REQUIRED');
+    const targetStatus = decision === 'APPROVE' ? 'APPROVED_PENDING_EXECUTION' : 'REJECTED';
+    return prisma.$transaction(async (tx) => {
+      const row = await tx.refundReconciliationCase.findUnique({ where: { id: req.params.id }, include: { purchase: { include: { membership: true, plan: { select: { name: true } } } } } });
+      if (!row) throw new Error('REFUND_CASE_NOT_FOUND');
+      if (row.status === targetStatus) {
+        if (decision === 'REJECT' && row.decisionReasonCode !== decisionReasonCode) throw new Error('REFUND_CASE_DECISION_CONFLICT');
+        return refundCaseView(row, true);
+      }
+      if (row.status !== 'REQUESTED') throw new Error('REFUND_CASE_NOT_ACTIONABLE');
+      if (row.purchase.status !== 'PAID' || row.purchase.membership?.status !== 'REJECTED') throw new Error('REFUND_CASE_NOT_ELIGIBLE');
+      const now = new Date();
+      const claimed = await tx.refundReconciliationCase.updateMany({ where: { id: row.id, status: 'REQUESTED' }, data: { status: targetStatus, decisionByUserId: actor.id, decisionReasonCode, decidedAt: now } });
+      if (claimed.count !== 1) {
+        const latest = await tx.refundReconciliationCase.findUnique({ where: { id: row.id }, include: { purchase: { include: { membership: true, plan: { select: { name: true } } } } } });
+        if (latest?.status === targetStatus && (decision !== 'REJECT' || latest.decisionReasonCode === decisionReasonCode)) return refundCaseView(latest, true);
+        throw new Error('REFUND_CASE_DECISION_CONFLICT');
+      }
+      const updated = await tx.refundReconciliationCase.findUnique({ where: { id: row.id }, include: { purchase: { include: { membership: true, plan: { select: { name: true } } } } } });
+      await audit(actor.id, decision === 'APPROVE' ? 'REFUND_CASE_APPROVED' : 'REFUND_CASE_REJECTED', 'RefundReconciliationCase', { entityId: row.id, metadata: { purchaseId: row.purchaseId, from: 'REQUESTED', to: targetStatus, reasonCode: decisionReasonCode, financialExecution: 'NOT_PERFORMED' }, idempotencyKey: `REFUND_CASE_${decision}:${row.id}` }, tx);
+      return refundCaseView(updated, true);
+    });
+  }
+  async approveRefundCase(body, req) { return this.decideRefundCase(body, req, 'APPROVE'); }
+  async rejectRefundCase(body, req) { return this.decideRefundCase(body, req, 'REJECT'); }
   async eligibility(body, req) {
     const actor = await requireUser(req); const provider = await prisma.provider.findFirst({ where: { id: req.params.providerId, status: 'APPROVED', memberships: { some: { userId: actor.id, role: { in: ['OWNER', 'MANAGER', 'STAFF'] } } } } });
     if (!provider) throw new Error('FORBIDDEN');
@@ -1029,6 +1084,11 @@ Get('users/me/purchases')(BenefitController.prototype, 'myPurchases', Object.get
 Get('users/me/memberships')(BenefitController.prototype, 'myMemberships', Object.getOwnPropertyDescriptor(BenefitController.prototype, 'myMemberships')); Req()(BenefitController.prototype, 'myMemberships', 0);
 Post('admin/purchases/:id/confirm-payment')(BenefitController.prototype, 'confirm', Object.getOwnPropertyDescriptor(BenefitController.prototype, 'confirm')); Body()(BenefitController.prototype, 'confirm', 0); Req()(BenefitController.prototype, 'confirm', 1);
 Post('admin/purchases/:id/refund')(BenefitController.prototype, 'refund', Object.getOwnPropertyDescriptor(BenefitController.prototype, 'refund')); Body()(BenefitController.prototype, 'refund', 0); Req()(BenefitController.prototype, 'refund', 1);
+Post('users/me/purchases/:id/refund-case')(BenefitController.prototype, 'requestRefundCase', Object.getOwnPropertyDescriptor(BenefitController.prototype, 'requestRefundCase')); Body()(BenefitController.prototype, 'requestRefundCase', 0); Req()(BenefitController.prototype, 'requestRefundCase', 1);
+Get('admin/refund-cases')(BenefitController.prototype, 'adminRefundCases', Object.getOwnPropertyDescriptor(BenefitController.prototype, 'adminRefundCases')); Req()(BenefitController.prototype, 'adminRefundCases', 0);
+Get('admin/refund-cases/:id')(BenefitController.prototype, 'adminRefundCase', Object.getOwnPropertyDescriptor(BenefitController.prototype, 'adminRefundCase')); Req()(BenefitController.prototype, 'adminRefundCase', 0);
+Post('admin/refund-cases/:id/approve')(BenefitController.prototype, 'approveRefundCase', Object.getOwnPropertyDescriptor(BenefitController.prototype, 'approveRefundCase')); Body()(BenefitController.prototype, 'approveRefundCase', 0); Req()(BenefitController.prototype, 'approveRefundCase', 1);
+Post('admin/refund-cases/:id/reject')(BenefitController.prototype, 'rejectRefundCase', Object.getOwnPropertyDescriptor(BenefitController.prototype, 'rejectRefundCase')); Body()(BenefitController.prototype, 'rejectRefundCase', 0); Req()(BenefitController.prototype, 'rejectRefundCase', 1);
 Post('admin/memberships/:id/approve')(BenefitController.prototype, 'approveMembership', Object.getOwnPropertyDescriptor(BenefitController.prototype, 'approveMembership')); Body()(BenefitController.prototype, 'approveMembership', 0); Req()(BenefitController.prototype, 'approveMembership', 1);
 Post('admin/memberships/:id/reject')(BenefitController.prototype, 'rejectMembership', Object.getOwnPropertyDescriptor(BenefitController.prototype, 'rejectMembership')); Body()(BenefitController.prototype, 'rejectMembership', 0); Req()(BenefitController.prototype, 'rejectMembership', 1);
 Post('providers/:providerId/eligibility/check')(BenefitController.prototype, 'eligibility', Object.getOwnPropertyDescriptor(BenefitController.prototype, 'eligibility')); Body()(BenefitController.prototype, 'eligibility', 0); Req()(BenefitController.prototype, 'eligibility', 1);
@@ -1185,7 +1245,7 @@ app.use((req, res, next) => {
 app.useGlobalFilters({ catch(exception, host) {
   const response = host.switchToHttp().getResponse();
   const code = exception?.message ?? 'INTERNAL_ERROR';
-  const status = exception?.code === 'P2002' || code === 'P2002' ? 409 : code === 'RATE_LIMITED' ? 429 : ['UNAUTHORIZED', 'AUTH_FAILED', 'OTP_INVALID', 'REFRESH_INVALID', 'MOBILE_NOT_VERIFIED', 'PASSWORD_SETUP_REQUIRED'].includes(code) ? 401 : ['FORBIDDEN', 'CSRF_REJECTED', 'AUTH_CONFLICT'].includes(code) ? 403 : ['INVALID_MOBILE', 'INVALID_PROFILE', 'INVALID_NATIONAL_ID', 'INVALID_ADDRESS', 'INVALID_STATUS', 'INVALID_PROVIDER', 'INVALID_PROVIDER_STATUS', 'INVALID_PROVIDER_TRANSITION', 'INVALID_MEDICAL_COUNCIL_NUMBER', 'PROVIDER_NOT_EDITABLE', 'PAYMENT_NOT_CONFIRMABLE', 'PAYMENT_REFERENCE_REQUIRED', 'REFUND_REFERENCE_REQUIRED', 'REFUND_NOT_ALLOWED', 'MEMBERSHIP_REJECTION_REASON_REQUIRED', 'MEMBERSHIP_NOT_ACTIONABLE', 'MEMBERSHIP_ACTIVATION_GUARD_FAILED', 'MEMBERSHIP_DECISION_RACE', 'PAID_PURCHASE_MEMBERSHIP_INCONSISTENT', 'INVALID_PLAN', 'INVALID_DISCOUNT', 'INVALID_STATE_TRANSITION', 'INVALID_REDEMPTION_TRANSITION', 'IDEMPOTENCY_KEY_REQUIRED', 'REDEMPTION_TOKEN_REQUIRED', 'REDEMPTION_NOT_ELIGIBLE', 'REDEMPTION_NOT_CONFIRMABLE', 'REDEMPTION_NOT_CANCELLABLE', 'REDEMPTION_TOKEN_INVALID', 'REDEMPTION_EXPIRED', 'REVERSAL_REASON_REQUIRED', 'INSUFFICIENT_BALANCE', 'INVALID_WITHDRAWAL_AMOUNT', 'INVALID_FINANCIAL_AMOUNT', 'WITHDRAWAL_NOT_ALLOWED', 'WITHDRAWAL_NOT_ACTIONABLE'].includes(code) ? 400 : ['ADDRESS_NOT_FOUND', 'USER_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PLAN_NOT_FOUND', 'PURCHASE_NOT_FOUND', 'MEMBERSHIP_NOT_FOUND', 'REDEMPTION_NOT_FOUND', 'PLAN_OR_PROVIDER_NOT_FOUND', 'WITHDRAWAL_NOT_FOUND'].includes(code) ? 404 : ['IDEMPOTENCY_CONFLICT', 'PAYMENT_CONFIRMATION_RACE', 'REFUND_RACE', 'MEMBERSHIP_DECISION_RACE', 'P2034', 'P2028', 'P40001', 'REDEMPTION_CONFIRMATION_RACE', 'REDEMPTION_CANCEL_RACE', 'REDEMPTION_REVERSAL_RACE'].includes(code) ? 409 : 500;
+  const status = exception?.code === 'P2002' || code === 'P2002' ? 409 : code === 'RATE_LIMITED' ? 429 : ['UNAUTHORIZED', 'AUTH_FAILED', 'OTP_INVALID', 'REFRESH_INVALID', 'MOBILE_NOT_VERIFIED', 'PASSWORD_SETUP_REQUIRED'].includes(code) ? 401 : ['FORBIDDEN', 'CSRF_REJECTED', 'AUTH_CONFLICT'].includes(code) ? 403 : ['INVALID_MOBILE', 'INVALID_PROFILE', 'INVALID_NATIONAL_ID', 'INVALID_ADDRESS', 'INVALID_STATUS', 'INVALID_PROVIDER', 'INVALID_PROVIDER_STATUS', 'INVALID_PROVIDER_TRANSITION', 'INVALID_MEDICAL_COUNCIL_NUMBER', 'PROVIDER_NOT_EDITABLE', 'PAYMENT_NOT_CONFIRMABLE', 'PAYMENT_REFERENCE_REQUIRED', 'REFUND_REFERENCE_REQUIRED', 'REFUND_NOT_ALLOWED', 'REFUND_CASE_REASON_REQUIRED', 'REFUND_CASE_IDEMPOTENCY_KEY_REQUIRED', 'REFUND_CASE_NOT_ELIGIBLE', 'REFUND_CASE_DECISION_REASON_REQUIRED', 'MEMBERSHIP_REJECTION_REASON_REQUIRED', 'MEMBERSHIP_NOT_ACTIONABLE', 'MEMBERSHIP_ACTIVATION_GUARD_FAILED', 'MEMBERSHIP_DECISION_RACE', 'PAID_PURCHASE_MEMBERSHIP_INCONSISTENT', 'INVALID_PLAN', 'INVALID_DISCOUNT', 'INVALID_STATE_TRANSITION', 'INVALID_REDEMPTION_TRANSITION', 'IDEMPOTENCY_KEY_REQUIRED', 'REDEMPTION_TOKEN_REQUIRED', 'REDEMPTION_NOT_ELIGIBLE', 'REDEMPTION_NOT_CONFIRMABLE', 'REDEMPTION_NOT_CANCELLABLE', 'REDEMPTION_TOKEN_INVALID', 'REDEMPTION_EXPIRED', 'REVERSAL_REASON_REQUIRED', 'INSUFFICIENT_BALANCE', 'INVALID_WITHDRAWAL_AMOUNT', 'INVALID_FINANCIAL_AMOUNT', 'WITHDRAWAL_NOT_ALLOWED', 'WITHDRAWAL_NOT_ACTIONABLE'].includes(code) ? 400 : ['ADDRESS_NOT_FOUND', 'USER_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PLAN_NOT_FOUND', 'PURCHASE_NOT_FOUND', 'MEMBERSHIP_NOT_FOUND', 'REFUND_CASE_NOT_FOUND', 'REDEMPTION_NOT_FOUND', 'PLAN_OR_PROVIDER_NOT_FOUND', 'WITHDRAWAL_NOT_FOUND'].includes(code) ? 404 : ['IDEMPOTENCY_CONFLICT', 'PAYMENT_CONFIRMATION_RACE', 'REFUND_RACE', 'REFUND_PROVIDER_VERIFICATION_REQUIRED', 'REFUND_CASE_ALREADY_EXISTS', 'REFUND_CASE_NOT_ACTIONABLE', 'REFUND_CASE_DECISION_CONFLICT', 'MEMBERSHIP_DECISION_RACE', 'P2034', 'P2028', 'P40001', 'REDEMPTION_CONFIRMATION_RACE', 'REDEMPTION_CANCEL_RACE', 'REDEMPTION_REVERSAL_RACE'].includes(code) ? 409 : 500;
   const safeStatus = ['P2034', 'P2028', 'P40001'].includes(exception?.code) || ['WITHDRAWAL_CONFLICT', 'REFUND_WALLET_FUNDS_UNAVAILABLE', 'COMMISSION_CURRENCY_CONTEXT_REQUIRED'].includes(code) ? 409 : status;
   response.status(safeStatus).json({ error: safeStatus === 500 ? 'INTERNAL_ERROR' : code });
 } });
