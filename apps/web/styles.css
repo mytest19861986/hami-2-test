@@ -214,6 +214,8 @@ li { margin: .65rem 0; overflow-wrap: anywhere; }
 .auth-submit:disabled { color: #26321e; opacity: .7; }
 .auth-form :focus-visible, .auth-footer-link:focus-visible { outline: 3px solid var(--auth-green); outline-offset: 3px; }
 .auth-status { min-height: 1.25rem; margin: -.4rem 0 0; color: #46555d; font-size: .85rem; line-height: 1.6; overflow-wrap: anywhere; }
+.auth-status--success { color: #356d20; }
+.auth-status--error { color: #b42318; }
 .auth-footer { margin-block-start: 1.5rem; padding-block-start: 1.25rem; border-block-start: 1px solid #edf0ee; color: #536169; font-size: .9rem; text-align: center; }
 .auth-footer-link { display: inline-flex; align-items: center; min-height: 2.75rem; margin-inline-start: .25rem; color: #3f7124; font-weight: 800; text-underline-offset: .2em; }
 @media (max-width: 760px) {

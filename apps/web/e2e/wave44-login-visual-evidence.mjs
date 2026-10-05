@@ -8,6 +8,10 @@ const baseURL = process.env.WAVE44_BASE_URL ?? 'http://127.0.0.1:3102';
 const out = process.env.WAVE44_OUT ?? '../../docs/10-quality/evidence/wave-44/frontend-rescue';
 const outputDirectory = path.resolve(out);
 const failures = [];
+let expectedAuthErrorInProgress = false;
+const invalidPhone = process.env.WAVE44_TEST_PHONE;
+const invalidPassword = process.env.WAVE44_TEST_PASSWORD;
+assert.ok(invalidPhone && invalidPassword, 'temporary invalid form values must be passed through the environment');
 
 await fs.mkdir(outputDirectory, { recursive: true });
 const configuredExecutable = process.env.WAVE44_BROWSER_EXECUTABLE;
@@ -16,7 +20,13 @@ const browser = await chromium.launch({ headless: true, ...(executablePath ? { e
 const page = await browser.newPage();
 page.on('pageerror', (error) => failures.push(`pageerror: ${error.message}`));
 page.on('console', (message) => {
-  if (message.type() === 'error') failures.push(`console: ${message.text()}`);
+  if (message.type() === 'error' && !(expectedAuthErrorInProgress && message.text().includes('401 (Unauthorized)'))) {
+    failures.push(`console: ${message.text()}`);
+  }
+});
+page.on('response', (response) => {
+  const expectedAuthError = response.status() === 401 && new URL(response.url()).pathname.endsWith('/api/v1/auth/login/password');
+  if (response.status() >= 400 && !expectedAuthError) failures.push(`http ${response.status()}: ${response.url()}`);
 });
 
 async function visitLogin(width, height, name) {
@@ -65,6 +75,22 @@ try {
 
   await page.goto(`${baseURL}/register`, { waitUntil: 'networkidle' });
   assert.equal(await page.getByRole('heading', { name: 'ثبت‌نام' }).count(), 1, 'shared shell remains available on registration');
+
+  await page.route('**/api/v1/auth/login/password', (route) => route.fulfill({
+    status: 401,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'INVALID_CREDENTIALS' }),
+  }));
+  await page.goto(`${baseURL}/login`, { waitUntil: 'networkidle' });
+  await page.getByLabel('شماره همراه').fill(invalidPhone);
+  await page.getByLabel('رمز عبور').fill(invalidPassword);
+  expectedAuthErrorInProgress = true;
+  await page.getByRole('button', { name: 'ورود به حساب' }).click();
+  const loginError = page.locator('.auth-status--error');
+  await loginError.waitFor({ state: 'visible' });
+  assert.match(await loginError.getAttribute('class'), /auth-status--error/, 'login errors use explicit error styling');
+  assert.equal(await loginError.getAttribute('role'), 'alert', 'login errors are announced assertively');
+  expectedAuthErrorInProgress = false;
   assert.ok(failures.length === 0, `unexpected browser errors: ${failures.join(' | ')}`);
   console.log(JSON.stringify({ result: 'PASS', desktop, mobile, otp: otpDimensions, unexpectedBrowserErrors: failures.length, screenshots: outputDirectory }));
 } finally {

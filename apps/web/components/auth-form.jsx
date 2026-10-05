@@ -11,6 +11,7 @@ export function AuthForm({ mode = 'login' }) {
   const [loginOtp, setLoginOtp] = useState(false);
   const [step, setStep] = useState(mode === 'register' ? 'request' : 'password');
   const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState('info');
   const [busy, setBusy] = useState(false);
   const [passwordSetupToken, setPasswordSetupToken] = useState('');
   const isRegister = mode === 'register';
@@ -31,11 +32,13 @@ export function AuthForm({ mode = 'login' }) {
     event.preventDefault();
     setBusy(true);
     setMessage('');
+    setMessageType('info');
     const api = createApiClient();
     try {
       if (isRegister && step === 'request') {
         const result = await api.post('/auth/register/request-otp', { phone });
         setMessage(result?.devCode ? `کد توسعه: ${result.devCode}` : 'کد تأیید ارسال شد.');
+        setMessageType('success');
         setStep('verify');
       } else if (isRegister && step === 'verify') {
         const result = await api.post('/auth/register/verify-otp', {
@@ -53,6 +56,7 @@ export function AuthForm({ mode = 'login' }) {
       } else if (loginOtp && step === 'password') {
         const result = await api.post('/auth/login/request-otp', { phone });
         setMessage(result?.devCode ? `کد توسعه: ${result.devCode}` : 'کد تأیید ارسال شد.');
+        setMessageType('success');
         setStep('verify');
       } else if (loginOtp) {
         const result = await api.post('/auth/login/verify-otp', { phone, code });
@@ -63,6 +67,7 @@ export function AuthForm({ mode = 'login' }) {
       }
     } catch (error) {
       setMessage(error.message);
+      setMessageType('error');
     } finally {
       setBusy(false);
     }
@@ -120,7 +125,7 @@ export function AuthForm({ mode = 'login' }) {
       <button className="auth-submit" disabled={busy} type="submit">
         {busy ? 'در حال ارسال…' : isRegister ? (step === 'request' ? 'درخواست کد' : step === 'verify' ? 'تأیید کد' : 'تکمیل ثبت‌نام') : loginOtp && step === 'password' ? 'درخواست کد' : loginOtp ? 'تأیید و ورود' : 'ورود به حساب'}
       </button>
-      <p className="auth-status" role="status" aria-live="polite">{message}</p>
+      <p className={`auth-status${messageType === 'info' ? '' : ` auth-status--${messageType}`}`} role={messageType === 'error' ? 'alert' : 'status'} aria-live={messageType === 'error' ? 'assertive' : 'polite'}>{message}</p>
     </form>
   );
 }
