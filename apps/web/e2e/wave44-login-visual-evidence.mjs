@@ -26,8 +26,26 @@ async function visitLogin(width, height, name) {
   assert.equal(await page.getByLabel('شماره همراه').count(), 1, `${name}: phone field`);
   assert.equal(await page.getByLabel('رمز عبور').count(), 1, `${name}: password is the default method`);
   await page.evaluate(() => window.scrollTo(0, 0));
-  const dimensions = await page.evaluate(() => ({ viewport: window.innerWidth, scroll: document.documentElement.scrollWidth }));
+  const dimensions = await page.evaluate(() => {
+    const shell = document.querySelector('.auth-shell').getBoundingClientRect();
+    const brand = document.querySelector('.auth-brand-panel').getBoundingClientRect();
+    const footerLink = document.querySelector('.auth-footer-link').getBoundingClientRect();
+    const methodOption = document.querySelector('.auth-method-option').getBoundingClientRect();
+    const submit = document.querySelector('.auth-submit').getBoundingClientRect();
+    return {
+      viewport: window.innerWidth,
+      scroll: document.documentElement.scrollWidth,
+      brandRatio: brand.width / shell.width,
+      footerLinkHeight: footerLink.height,
+      methodOptionHeight: methodOption.height,
+      submitHeight: submit.height,
+    };
+  });
   assert.ok(dimensions.scroll <= dimensions.viewport, `${name}: horizontal overflow ${JSON.stringify(dimensions)}`);
+  if (width > 760) assert.ok(dimensions.brandRatio >= 0.42 && dimensions.brandRatio <= 0.45, `${name}: brand panel ratio ${dimensions.brandRatio}`);
+  assert.ok(dimensions.footerLinkHeight >= 44, `${name}: registration touch target ${dimensions.footerLinkHeight}px`);
+  assert.ok(dimensions.methodOptionHeight >= 44, `${name}: method touch target ${dimensions.methodOptionHeight}px`);
+  assert.ok(dimensions.submitHeight >= 48, `${name}: primary action height ${dimensions.submitHeight}px`);
   await page.screenshot({ path: path.join(outputDirectory, name), fullPage: true });
   return dimensions;
 }
@@ -37,6 +55,7 @@ try {
   const mobile = await visitLogin(390, 844, 'AFTER-login-mobile-390x844.png');
 
   await page.getByRole('button', { name: 'کد یک‌بارمصرف' }).click();
+  assert.equal(await page.getByRole('button', { name: 'کد یک‌بارمصرف' }).getAttribute('aria-pressed'), 'true', 'OTP method state must be announced');
   assert.equal(await page.getByLabel('رمز عبور').count(), 0, 'OTP request state must not show password');
   assert.equal(await page.getByRole('button', { name: 'درخواست کد' }).count(), 1, 'OTP request CTA is shown');
   const otpDimensions = await page.evaluate(() => ({ viewport: window.innerWidth, scroll: document.documentElement.scrollWidth }));
