@@ -39,7 +39,7 @@ export default function SupportDashboard() {
     {error && <section className="ui-state ui-state--error" role="alert">{error}<button type="button" onClick={() => setRetry((value) => value + 1)}>تلاش دوباره</button></section>}
     {data && <>
       <section className="support-summary" aria-label="خلاصه وضعیت‌ها">
-        {views.map(({ key, title }) => <article className="card" key={key}><h2>{title}</h2><ul>{Object.entries(data.summary[key.replace('-', '_')] || {}).map(([status, count]) => <li key={status}>{statusLabels[status] || status}: {count}</li>)}</ul></article>)}
+        {views.map(({ key, title }) => { const summary = data.summary[key.replace('-', '_')] || {}; const entries = Object.entries(summary); return <article className="card" key={key}><h2>{title}</h2>{entries.length ? <ul>{entries.map(([status, count]) => <li key={status}>{statusLabels[status] || status}: {count}</li>)}</ul> : <p className="support-summary-empty">اطلاعاتی ثبت نشده است.</p>}</article>; })}
       </section>
       {views.map((view, index) => <section className="card support-section" id={view.key} key={view.key} aria-labelledby={`${view.key}-heading`}>
         <h2 id={`${view.key}-heading`}>{view.title}</h2>

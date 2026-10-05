@@ -1,15 +1,42 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export function AuthenticatedShell({ area, brandHref, brandSubtitle, accountLabel, logout, logoutError, links, title, children }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const navigationId = `authenticated-navigation-${area}`;
+  const navigationRef = useRef(null);
+  const toggleRef = useRef(null);
+
+  function closeNavigation() {
+    setMenuOpen(false);
+    toggleRef.current?.focus();
+  }
 
   useEffect(() => {
     if (!menuOpen) return undefined;
-    function closeOnEscape(event) { if (event.key === 'Escape') setMenuOpen(false); }
+    const previousOverflow = globalThis.document.body.style.overflow;
+    globalThis.document.body.style.overflow = 'hidden';
+    navigationRef.current?.querySelector('a[href]')?.focus();
+    function closeOnEscape(event) { if (event.key === 'Escape') closeNavigation(); }
     globalThis.addEventListener('keydown', closeOnEscape);
-    return () => globalThis.removeEventListener('keydown', closeOnEscape);
+    return () => {
+      globalThis.removeEventListener('keydown', closeOnEscape);
+      globalThis.document.body.style.overflow = previousOverflow;
+    };
   }, [menuOpen]);
+
+  function trapNavigationFocus(event) {
+    if (event.key !== 'Tab') return;
+    const focusable = [...(navigationRef.current?.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])]
+      .filter((element) => element.getClientRects().length > 0);
+    if (!focusable.length) { event.preventDefault(); return; }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && (globalThis.document.activeElement === first || !navigationRef.current.contains(globalThis.document.activeElement))) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && (globalThis.document.activeElement === last || !navigationRef.current.contains(globalThis.document.activeElement))) {
+      event.preventDefault(); first.focus();
+    }
+  }
 
   return <main dir="rtl" lang="fa" className="authenticated-shell">
     <header className="app-header">
@@ -21,17 +48,17 @@ export function AuthenticatedShell({ area, brandHref, brandSubtitle, accountLabe
         <span className="account-label">{accountLabel}</span>
         <button className="button button--ghost" type="button" onClick={logout}>خروج</button>
       </div>
-      <button className="button button--ghost navigation-toggle" type="button" aria-label={menuOpen ? 'بستن ناوبری' : 'بازکردن ناوبری'} aria-expanded={menuOpen} aria-controls={navigationId} onClick={() => setMenuOpen((open) => !open)}>
+      <button ref={toggleRef} className="button button--ghost navigation-toggle" type="button" aria-label={menuOpen ? 'بستن ناوبری' : 'بازکردن ناوبری'} aria-expanded={menuOpen} aria-controls={navigationId} onClick={() => menuOpen ? closeNavigation() : setMenuOpen(true)}>
         <span aria-hidden="true">{menuOpen ? '×' : '☰'}</span>
       </button>
     </header>
     {logoutError && <p className="logout-error" role="alert">{logoutError}</p>}
     <div className="app-layout">
-      {menuOpen && <button className="navigation-backdrop" type="button" aria-label="بستن ناوبری" onClick={() => setMenuOpen(false)} />}
-      <aside id={navigationId} className={`app-sidebar${menuOpen ? ' app-sidebar--open' : ''}`}>
+      {menuOpen && <button className="navigation-backdrop" type="button" aria-label="بستن ناوبری" onClick={closeNavigation} />}
+      <aside ref={navigationRef} id={navigationId} className={`app-sidebar${menuOpen ? ' app-sidebar--open' : ''}`} onKeyDown={trapNavigationFocus}>
         <p className="nav-heading">{area === 'admin' ? 'مرکز عملیات' : area === 'support' ? 'مرکز پشتیبانی' : 'فضای کاربری'}</p>
         <nav aria-label={area === 'admin' ? 'ناوبری مدیریت' : area === 'support' ? 'ناوبری پشتیبانی' : 'ناوبری کاربر'}>
-          {links.map(([href, label]) => href === 'section' ? <p className="nav-heading nav-heading--spaced" key={label}>{label}</p> : href ? <a className="nav-link" href={href} key={href} onClick={() => setMenuOpen(false)}>{label}</a> : <p className="nav-heading nav-heading--spaced" key={label}>{label}</p>)}
+          {links.map(([href, label]) => href === 'section' ? <p className="nav-heading nav-heading--spaced" key={label}>{label}</p> : href ? <a className="nav-link" href={href} key={href} onClick={closeNavigation}>{label}</a> : <p className="nav-heading nav-heading--spaced" key={label}>{label}</p>)}
         </nav>
       </aside>
       <section className="app-content"><div className="content-title"><p className="page-eyebrow">{area === 'admin' ? 'مدیریت' : area === 'support' ? 'دسترسی محدود' : 'حامی کارت'}</p><h1>{title}</h1></div>{children}</section>
