@@ -32,6 +32,10 @@ async function activePlan() {
   const suffix = crypto.randomBytes(8).toString('hex');
   return prisma.benefitPlan.create({ data: { code: `W44-${suffix}`, name: 'Wave 44 capability test plan', priceAmount: 7300n, currency: 'IRR', validityDays: 21, status: 'ACTIVE' } });
 }
+async function inactivePlan() {
+  const suffix = crypto.randomBytes(8).toString('hex');
+  return prisma.benefitPlan.create({ data: { code: `W44-INACTIVE-${suffix}`, name: 'Wave 44 inactive plan test', priceAmount: 9100n, currency: 'USD', validityDays: 5, status: 'INACTIVE' } });
+}
 
 test('Wave 44 grants plan selection only to customer actors and creates one authoritative pending purchase on concurrent submit', async () => {
   const [customer, representative, support, providerActor, admin] = await Promise.all(Array.from({ length: 5 }, () => register()));
@@ -55,6 +59,13 @@ test('Wave 44 grants plan selection only to customer actors and creates one auth
 
   const customerMe = await call('/auth/me', { token: customer.accessToken }).then((response) => response.json());
   assert.equal(customerMe.capabilities.includes('plans.select'), true);
+  const inactive = await inactivePlan();
+  const inactiveResult = await call('/users/me/purchases', { method: 'POST', token: customer.accessToken, body: { planId: inactive.id } });
+  assert.equal(inactiveResult.status, 404, 'inactive plans must not be purchasable');
+  assert.deepEqual(await inactiveResult.json(), { error: 'PLAN_NOT_FOUND' });
+  const unavailableResult = await call('/users/me/purchases', { method: 'POST', token: customer.accessToken, body: { planId: crypto.randomUUID() } });
+  assert.equal(unavailableResult.status, 404, 'missing plans must not be purchasable');
+  assert.deepEqual(await unavailableResult.json(), { error: 'PLAN_NOT_FOUND' });
   const walletTransactionsBefore = await prisma.walletTransaction.count();
   const forgedOwnerId = '00000000-0000-4000-8000-000000000000';
   const request = () => call('/users/me/purchases', { method: 'POST', token: customer.accessToken, body: { planId: plan.id, userId: forgedOwnerId, amountSnapshot: '1', currencySnapshot: 'USD', paymentStatus: 'PAID' } });
