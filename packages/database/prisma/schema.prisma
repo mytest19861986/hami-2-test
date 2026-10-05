@@ -33,6 +33,7 @@ model User {
   withdrawalRequests          WithdrawalRequest[]
   salesAttributionsAsPartner  SalesAttribution[]        @relation("SalesPartner")
   salesAttributionsAsCustomer SalesAttribution[]        @relation("SalesCustomer")
+  salesRegistrationInvites    SalesRegistrationInvite[]  @relation("SalesRegistrationInviteOwner")
   commissions                 SalesCommission[]
   authorizationAuditEvents    AuthorizationAuditEvent[]
   redemptionsAsCustomer       Redemption[]              @relation("RedemptionCustomer")
@@ -558,6 +559,19 @@ model SalesAttribution {
   commissions        SalesCommission[]
 
   @@index([salesPartnerUserId, status])
+}
+
+model SalesRegistrationInvite {
+  id                 String    @id @default(uuid())
+  salesPartnerUserId String
+  codeHash           String    @unique
+  expiresAt          DateTime
+  redeemedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  salesPartner       User      @relation("SalesRegistrationInviteOwner", fields: [salesPartnerUserId], references: [id])
+
+  @@index([salesPartnerUserId, createdAt])
+  @@index([expiresAt, redeemedAt])
 }
 
 model SalesCommissionRule {

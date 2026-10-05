@@ -76,8 +76,8 @@ export function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
 }
 
-export function createPasswordSetupToken(userId) {
-  const payload = Buffer.from(JSON.stringify({ sub: userId, purpose: 'PASSWORD_SETUP', exp: Date.now() + 10 * 60_000 })).toString('base64url');
+export function createPasswordSetupToken(userId, { salesInviteId = null } = {}) {
+  const payload = Buffer.from(JSON.stringify({ sub: userId, purpose: 'PASSWORD_SETUP', exp: Date.now() + 10 * 60_000, ...(salesInviteId ? { salesInviteId } : {}) })).toString('base64url');
   const signature = crypto.createHmac('sha256', authSecret()).update(payload).digest('base64url');
   return `${payload}.${signature}`;
 }

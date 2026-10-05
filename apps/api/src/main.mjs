@@ -100,15 +100,35 @@ class AuthController {
   }
   async requestRegisterOtp(body, req) { rateLimit(`register:${req.ip ?? 'unknown'}:${body.phone}`); return requestOtp(body.phone, 'REGISTER', { idempotencyKey: body.idempotencyKey ?? null }); }
   async verifyRegisterOtp(body) {
+    const inviteCode = body?.salesInviteCode == null ? null : String(body.salesInviteCode).trim();
+    if (inviteCode && !/^[A-Za-z0-9_-]{43}$/.test(inviteCode)) throw new Error('SALES_INVITE_INVALID_OR_USED');
     const phone = await verifyOtp(body.phone, 'REGISTER', body.code);
-    const user = await prisma.user.upsert({ where: { phone }, update: { mobileVerifiedAt: new Date() }, create: { phone, mobileVerifiedAt: new Date(), status: 'PENDING' } });
-    const userRole = await prisma.role.findUnique({ where: { name: 'USER' } });
-    await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: userRole.id } }, update: {}, create: { userId: user.id, roleId: userRole.id } });
-    await audit(user.id, 'USER_REGISTERED', 'User');
+    const inviteHash = inviteCode ? crypto.createHash('sha256').update(inviteCode).digest('hex') : null;
+    const now = new Date();
+    const registration = await prisma.$transaction(async (tx) => {
+      let salesInviteId = null;
+      if (inviteHash) {
+        const invite = await tx.salesRegistrationInvite.findUnique({ where: { codeHash: inviteHash }, select: { id: true, expiresAt: true, redeemedAt: true } });
+        if (!invite || invite.redeemedAt || invite.expiresAt <= now) throw new Error('SALES_INVITE_INVALID_OR_USED');
+        salesInviteId = invite.id;
+      }
+      const existing = await tx.user.findUnique({ where: { phone } });
+      if (existing?.status === 'ACTIVE') throw new Error('REGISTRATION_ALREADY_COMPLETED');
+      if (existing && existing.status !== 'PENDING') throw new Error('REGISTRATION_NOT_ALLOWED');
+      const user = existing
+        ? await tx.user.update({ where: { id: existing.id }, data: { mobileVerifiedAt: now } })
+        : await tx.user.create({ data: { phone, mobileVerifiedAt: now, status: 'PENDING' } });
+      const userRole = await tx.role.findUnique({ where: { name: 'USER' } });
+      if (!userRole) throw new Error('REGISTRATION_NOT_ALLOWED');
+      await tx.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: userRole.id } }, update: {}, create: { userId: user.id, roleId: userRole.id } });
+      return { user, created: !existing, salesInviteId };
+    });
+    const { user } = registration;
+    if (registration.created) await audit(user.id, 'USER_REGISTERED', 'User');
     await audit(user.id, 'ROLE_ASSIGNED', 'UserRole');
     await audit(user.id, 'OTP_VERIFIED', 'User');
     rememberVerifiedRegistration(user.id);
-    return { userId: user.id, phone: user.phone, verified: true, passwordSetupToken: createPasswordSetupToken(user.id) };
+    return { userId: user.id, phone: user.phone, verified: true, passwordSetupToken: createPasswordSetupToken(user.id, { salesInviteId: registration.salesInviteId }) };
   }
   async setPassword(body) {
     const phone = normalizeMobile(body.phone);
@@ -120,10 +140,17 @@ class AuthController {
       const next = await tx.user.update({ where: { id: user.id }, data: { passwordHash: hashPassword(body.password), status: 'ACTIVE' } });
       await tx.sessionFamily.updateMany({ where: { userId: user.id, status: 'ACTIVE' }, data: { status: 'REVOKED', revocationReason: 'PASSWORD_CHANGED' } });
       await tx.authSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date(), consumedAt: new Date() } });
+      if (setup?.salesInviteId) {
+        const invite = await tx.salesRegistrationInvite.findUnique({ where: { id: setup.salesInviteId }, select: { id: true, salesPartnerUserId: true } });
+        const redeemed = await tx.salesRegistrationInvite.updateMany({ where: { id: setup.salesInviteId, redeemedAt: null, expiresAt: { gt: new Date() } }, data: { redeemedAt: new Date() } });
+        if (!invite || redeemed.count !== 1) throw new Error('SALES_INVITE_INVALID_OR_USED');
+        await tx.salesAttribution.create({ data: { salesPartnerUserId: invite.salesPartnerUserId, customerUserId: user.id } });
+      }
       return next;
     });
     await audit(updated.id, 'PASSWORD_SET', 'User');
     await audit(updated.id, 'PASSWORD_CHANGED', 'User');
+    if (setup?.salesInviteId) await audit(updated.id, 'SALES_ATTRIBUTION_CREATED', 'SalesAttribution');
     return { userId: updated.id, active: true };
   }
   async passwordLogin(body, req, res) {
@@ -716,15 +743,14 @@ Patch('admin/commercial-settings')(CommercialAdminController.prototype, 'updateS
 Controller()(CommercialAdminController);
 
 class SalesCommissionController {
-  async createAttribution(body, req) {
+  async createRegistrationInvite(req) {
     const actor = await new AuthController().currentWithPermission(req, 'sales_attributions.create');
-    const customerUserId = String(body?.customerUserId ?? '');
-    if (!customerUserId || customerUserId === actor.id) throw new Error('INVALID_SALES_CUSTOMER');
-    const customer = await prisma.user.findUnique({ where: { id: customerUserId }, select: { id: true, status: true } });
-    if (!customer || customer.status !== 'ACTIVE') throw new Error('USER_NOT_FOUND');
-    const row = await prisma.salesAttribution.create({ data: { salesPartnerUserId: actor.id, customerUserId } });
-    await audit(actor.id, 'SALES_ATTRIBUTION_CREATED', 'SalesAttribution');
-    return { id: row.id, status: row.status, createdAt: row.createdAt, customerRef: `cust_${crypto.createHash('sha256').update(customerUserId).digest('hex').slice(0, 12)}`, displayAlias: customerAlias(customerUserId) };
+    rateLimit(`sales-registration-invite:${actor.id}`);
+    const code = crypto.randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000);
+    const row = await prisma.salesRegistrationInvite.create({ data: { salesPartnerUserId: actor.id, codeHash: crypto.createHash('sha256').update(code).digest('hex'), expiresAt } });
+    await audit(actor.id, 'SALES_REGISTRATION_INVITE_CREATED', 'SalesRegistrationInvite');
+    return { id: row.id, code, expiresAt, registrationPath: '/register' };
   }
   async myAttributions(req) {
     const actor = await new AuthController().currentWithPermission(req, 'sales_attributions.read');
@@ -987,7 +1013,7 @@ Get('support/memberships')(SupportController.prototype, 'memberships', Object.ge
 Get('support/redemptions')(SupportController.prototype, 'redemptions', Object.getOwnPropertyDescriptor(SupportController.prototype, 'redemptions')); Req()(SupportController.prototype, 'redemptions', 0);
 Get('support/refund-cases')(SupportController.prototype, 'refundCases', Object.getOwnPropertyDescriptor(SupportController.prototype, 'refundCases')); Req()(SupportController.prototype, 'refundCases', 0);
 Controller()(SupportController);
-Post('sales-partner/customers')(SalesCommissionController.prototype, 'createAttribution', Object.getOwnPropertyDescriptor(SalesCommissionController.prototype, 'createAttribution')); Body()(SalesCommissionController.prototype, 'createAttribution', 0); Req()(SalesCommissionController.prototype, 'createAttribution', 1);
+Post('sales-partner/customers')(SalesCommissionController.prototype, 'createRegistrationInvite', Object.getOwnPropertyDescriptor(SalesCommissionController.prototype, 'createRegistrationInvite')); Req()(SalesCommissionController.prototype, 'createRegistrationInvite', 0);
 Get('sales-partner/customers')(SalesCommissionController.prototype, 'myAttributions', Object.getOwnPropertyDescriptor(SalesCommissionController.prototype, 'myAttributions')); Req()(SalesCommissionController.prototype, 'myAttributions', 0);
 Get('rep/commission/summary')(SalesCommissionController.prototype, 'representativeSummary', Object.getOwnPropertyDescriptor(SalesCommissionController.prototype, 'representativeSummary')); Req()(SalesCommissionController.prototype, 'representativeSummary', 0);
 Get('admin/commissions')(SalesCommissionController.prototype, 'commissions', Object.getOwnPropertyDescriptor(SalesCommissionController.prototype, 'commissions')); Req()(SalesCommissionController.prototype, 'commissions', 0);
@@ -1275,8 +1301,10 @@ async function seedRbac() {
     await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: admin.id, permissionId: permission.id } }, update: {}, create: { roleId: admin.id, permissionId: permission.id } });
   }
   const salesPartner = await prisma.role.findUnique({ where: { name: 'SALES_PARTNER' } });
-  const summaryPermission = await prisma.permission.findUnique({ where: { resource_action: { resource: 'commissions', action: 'summary_read' } } });
-  await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: salesPartner.id, permissionId: summaryPermission.id } }, update: {}, create: { roleId: salesPartner.id, permissionId: summaryPermission.id } });
+  for (const [resource, action] of [['commissions', 'summary_read'], ['sales_attributions', 'read'], ['sales_attributions', 'create']]) {
+    const permission = await prisma.permission.findUnique({ where: { resource_action: { resource, action } } });
+    await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: salesPartner.id, permissionId: permission.id } }, update: {}, create: { roleId: salesPartner.id, permissionId: permission.id } });
+  }
   const compliance = await prisma.role.findUnique({ where: { name: 'COMPLIANCE_AUDITOR' } });
   const compliancePermission = await prisma.permission.findUnique({ where: { resource_action: { resource: 'compliance', action: 'audit_read' } } });
   await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: compliance.id, permissionId: compliancePermission.id } }, update: {}, create: { roleId: compliance.id, permissionId: compliancePermission.id } });
@@ -1358,7 +1386,7 @@ app.use((req, res, next) => {
 app.useGlobalFilters({ catch(exception, host) {
   const response = host.switchToHttp().getResponse();
   const code = exception?.message ?? 'INTERNAL_ERROR';
-  const status = code === 'DOCTOR_NATIONAL_ID_KEY_UNAVAILABLE' ? 503 : exception?.code === 'P2002' || code === 'P2002' ? 409 : code === 'RATE_LIMITED' ? 429 : ['UNAUTHORIZED', 'AUTH_FAILED', 'OTP_INVALID', 'REFRESH_INVALID', 'MOBILE_NOT_VERIFIED', 'PASSWORD_SETUP_REQUIRED'].includes(code) ? 401 : ['FORBIDDEN', 'CSRF_REJECTED', 'AUTH_CONFLICT'].includes(code) ? 403 : ['INVALID_MOBILE', 'INVALID_PROFILE', 'INVALID_NATIONAL_ID', 'INVALID_ADDRESS', 'INVALID_STATUS', 'INVALID_PROVIDER', 'INVALID_PROVIDER_STATUS', 'INVALID_PROVIDER_TRANSITION', 'INVALID_MEDICAL_COUNCIL_NUMBER', 'DOCTOR_NATIONAL_ID_REQUIRED', 'PROVIDER_NOT_EDITABLE', 'PAYMENT_NOT_CONFIRMABLE', 'PAYMENT_REFERENCE_REQUIRED', 'REFUND_REFERENCE_REQUIRED', 'REFUND_NOT_ALLOWED', 'REFUND_CASE_REASON_REQUIRED', 'REFUND_CASE_IDEMPOTENCY_KEY_REQUIRED', 'REFUND_CASE_NOT_ELIGIBLE', 'REFUND_CASE_DECISION_REASON_REQUIRED', 'MEMBERSHIP_REJECTION_REASON_REQUIRED', 'MEMBERSHIP_NOT_ACTIONABLE', 'MEMBERSHIP_ACTIVATION_GUARD_FAILED', 'MEMBERSHIP_DECISION_RACE', 'PAID_PURCHASE_MEMBERSHIP_INCONSISTENT', 'INVALID_PLAN', 'INVALID_DISCOUNT', 'INVALID_STATE_TRANSITION', 'INVALID_REDEMPTION_TRANSITION', 'IDEMPOTENCY_KEY_REQUIRED', 'REDEMPTION_TOKEN_REQUIRED', 'REDEMPTION_NOT_ELIGIBLE', 'REDEMPTION_NOT_CONFIRMABLE', 'REDEMPTION_NOT_CANCELLABLE', 'REDEMPTION_TOKEN_INVALID', 'REDEMPTION_EXPIRED', 'REVERSAL_REASON_REQUIRED', 'INSUFFICIENT_BALANCE', 'INVALID_WITHDRAWAL_AMOUNT', 'INVALID_FINANCIAL_AMOUNT', 'WITHDRAWAL_NOT_ALLOWED', 'WITHDRAWAL_NOT_ACTIONABLE'].includes(code) ? 400 : ['ADDRESS_NOT_FOUND', 'USER_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PLAN_NOT_FOUND', 'PURCHASE_NOT_FOUND', 'MEMBERSHIP_NOT_FOUND', 'REFUND_CASE_NOT_FOUND', 'REDEMPTION_NOT_FOUND', 'PLAN_OR_PROVIDER_NOT_FOUND', 'WITHDRAWAL_NOT_FOUND'].includes(code) ? 404 : ['DOCTOR_NATIONAL_ID_ALREADY_ASSIGNED', 'IDEMPOTENCY_CONFLICT', 'PAYMENT_CONFIRMATION_RACE', 'REFUND_RACE', 'REFUND_PROVIDER_VERIFICATION_REQUIRED', 'REFUND_CASE_ALREADY_EXISTS', 'REFUND_CASE_NOT_ACTIONABLE', 'REFUND_CASE_DECISION_CONFLICT', 'MEMBERSHIP_DECISION_RACE', 'P2034', 'P2028', 'P40001', 'REDEMPTION_CONFIRMATION_RACE', 'REDEMPTION_CANCEL_RACE', 'REDEMPTION_REVERSAL_RACE'].includes(code) ? 409 : 500;
+  const status = code === 'DOCTOR_NATIONAL_ID_KEY_UNAVAILABLE' ? 503 : exception?.code === 'P2002' || code === 'P2002' ? 409 : code === 'RATE_LIMITED' ? 429 : ['UNAUTHORIZED', 'AUTH_FAILED', 'OTP_INVALID', 'REFRESH_INVALID', 'MOBILE_NOT_VERIFIED', 'PASSWORD_SETUP_REQUIRED'].includes(code) ? 401 : ['FORBIDDEN', 'CSRF_REJECTED', 'AUTH_CONFLICT'].includes(code) ? 403 : ['INVALID_MOBILE', 'INVALID_PROFILE', 'INVALID_NATIONAL_ID', 'INVALID_ADDRESS', 'INVALID_STATUS', 'INVALID_PROVIDER', 'INVALID_PROVIDER_STATUS', 'INVALID_PROVIDER_TRANSITION', 'INVALID_MEDICAL_COUNCIL_NUMBER', 'DOCTOR_NATIONAL_ID_REQUIRED', 'PROVIDER_NOT_EDITABLE', 'PAYMENT_NOT_CONFIRMABLE', 'PAYMENT_REFERENCE_REQUIRED', 'REFUND_REFERENCE_REQUIRED', 'REFUND_NOT_ALLOWED', 'REFUND_CASE_REASON_REQUIRED', 'REFUND_CASE_IDEMPOTENCY_KEY_REQUIRED', 'REFUND_CASE_NOT_ELIGIBLE', 'REFUND_CASE_DECISION_REASON_REQUIRED', 'MEMBERSHIP_REJECTION_REASON_REQUIRED', 'MEMBERSHIP_NOT_ACTIONABLE', 'MEMBERSHIP_ACTIVATION_GUARD_FAILED', 'MEMBERSHIP_DECISION_RACE', 'PAID_PURCHASE_MEMBERSHIP_INCONSISTENT', 'INVALID_PLAN', 'INVALID_DISCOUNT', 'INVALID_STATE_TRANSITION', 'INVALID_REDEMPTION_TRANSITION', 'IDEMPOTENCY_KEY_REQUIRED', 'REDEMPTION_TOKEN_REQUIRED', 'REDEMPTION_NOT_ELIGIBLE', 'REDEMPTION_NOT_CONFIRMABLE', 'REDEMPTION_NOT_CANCELLABLE', 'REDEMPTION_TOKEN_INVALID', 'REDEMPTION_EXPIRED', 'REVERSAL_REASON_REQUIRED', 'INSUFFICIENT_BALANCE', 'INVALID_WITHDRAWAL_AMOUNT', 'INVALID_FINANCIAL_AMOUNT', 'WITHDRAWAL_NOT_ALLOWED', 'WITHDRAWAL_NOT_ACTIONABLE'].includes(code) ? 400 : ['ADDRESS_NOT_FOUND', 'USER_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PLAN_NOT_FOUND', 'PURCHASE_NOT_FOUND', 'MEMBERSHIP_NOT_FOUND', 'REFUND_CASE_NOT_FOUND', 'REDEMPTION_NOT_FOUND', 'PLAN_OR_PROVIDER_NOT_FOUND', 'WITHDRAWAL_NOT_FOUND'].includes(code) ? 404 : ['DOCTOR_NATIONAL_ID_ALREADY_ASSIGNED', 'IDEMPOTENCY_CONFLICT', 'PAYMENT_CONFIRMATION_RACE', 'REFUND_RACE', 'REFUND_PROVIDER_VERIFICATION_REQUIRED', 'REFUND_CASE_ALREADY_EXISTS', 'REFUND_CASE_NOT_ACTIONABLE', 'REFUND_CASE_DECISION_CONFLICT', 'MEMBERSHIP_DECISION_RACE', 'P2034', 'P2028', 'P40001', 'REDEMPTION_CONFIRMATION_RACE', 'REDEMPTION_CANCEL_RACE', 'REDEMPTION_REVERSAL_RACE', 'SALES_INVITE_INVALID_OR_USED', 'REGISTRATION_ALREADY_COMPLETED', 'REGISTRATION_NOT_ALLOWED'].includes(code) ? 409 : 500;
   const safeStatus = ['P2034', 'P2028', 'P40001'].includes(exception?.code) || ['WITHDRAWAL_CONFLICT', 'REFUND_WALLET_FUNDS_UNAVAILABLE', 'COMMISSION_CURRENCY_CONTEXT_REQUIRED'].includes(code) ? 409 : status;
   response.status(safeStatus).json({ error: safeStatus === 500 ? 'INTERNAL_ERROR' : code });
 } });

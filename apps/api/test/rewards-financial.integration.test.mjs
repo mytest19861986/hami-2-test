@@ -6,11 +6,11 @@ const prisma = new PrismaClient();
 const base = process.env.API_BASE_URL || 'http://127.0.0.1:4000/api/v1';
 const password = 'TEMP-Rewards-Integration-2026!';
 
-async function register() {
+async function register({ salesInviteCode } = {}) {
   const phone = `0912${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`;
   const requested = await fetch(`${base}/auth/register/request-otp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone }) }).then((r) => r.json());
-  await fetch(`${base}/auth/register/verify-otp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone, code: requested.devCode }) });
-  await fetch(`${base}/auth/register/set-password`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone, password }) });
+  const verified = await fetch(`${base}/auth/register/verify-otp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone, code: requested.devCode, ...(salesInviteCode ? { salesInviteCode } : {}) }) }).then((r) => r.json());
+  await fetch(`${base}/auth/register/set-password`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone, password, ...(verified.passwordSetupToken ? { passwordSetupToken: verified.passwordSetupToken } : {}) }) });
   return fetch(`${base}/auth/login/password`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phone, password }) }).then((r) => r.json());
 }
 
@@ -26,6 +26,11 @@ async function makeAdmin(accessToken, userId) {
   const role = await prisma.role.findUniqueOrThrow({ where: { name: 'SUPER_ADMIN' } });
   await prisma.userRole.create({ data: { userId, roleId: role.id } });
   return { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' };
+}
+
+async function assignSalesPartner(userId) {
+  const role = await prisma.role.findUniqueOrThrow({ where: { name: 'SALES_PARTNER' } });
+  await prisma.userRole.create({ data: { userId, roleId: role.id } });
 }
 
 test('real API concurrent withdrawals reserve at most the available ledger balance', async () => {
@@ -136,16 +141,16 @@ test('operator refund reference cannot reverse a referral reward without PSP ver
 
 test('integrated concurrent payment creates one membership, referral reward, and commission', async () => {
   const referrer = await register();
-  const customer = await register();
   const partner = await register();
-  const customerMe = await fetch(`${base}/auth/me`, { headers: { authorization: `Bearer ${customer.accessToken}` } }).then((r) => r.json());
   const partnerMe = await fetch(`${base}/auth/me`, { headers: { authorization: `Bearer ${partner.accessToken}` } }).then((r) => r.json());
+  await assignSalesPartner(partnerMe.id);
+  const inviteResponse = await post('/sales-partner/customers', partner.accessToken, {});
+  assert.equal(inviteResponse.status, 201, await inviteResponse.clone().text());
+  const customer = await register({ salesInviteCode: (await inviteResponse.json()).code });
+  const customerMe = await fetch(`${base}/auth/me`, { headers: { authorization: `Bearer ${customer.accessToken}` } }).then((r) => r.json());
   const adminHeaders = await makeAdmin(customer.accessToken, customerMe.id);
-  await makeAdmin(partner.accessToken, partnerMe.id);
   const code = await post('/users/me/referral', referrer.accessToken, {}).then((r) => r.json());
   assert.equal((await post('/referrals/claim', customer.accessToken, { code: code.code })).status, 201);
-  const attributionResponse = await post('/sales-partner/customers', partner.accessToken, { customerUserId: customerMe.id });
-  assert.equal(attributionResponse.status, 201, await attributionResponse.text());
   const plan = await prisma.benefitPlan.create({ data: { code: `INT-${Date.now()}-${Math.random()}`, name: 'Integrated test plan', priceAmount: 2000n, currency: 'IRR', validityDays: 30, status: 'ACTIVE' } });
   const purchase = await post('/users/me/purchases', customer.accessToken, { planId: plan.id }).then((r) => r.json());
   await prisma.salesCommissionRule.create({ data: { type: 'PERCENT', value: 10 } });

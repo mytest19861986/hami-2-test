@@ -105,6 +105,7 @@ li { margin: .65rem 0; overflow-wrap: anywhere; }
   .app-content { width: 100%; padding: 1.1rem .85rem 2rem; }
 }
 @media (max-width: 480px) { h1 { font-size: 1.45rem; } form { width: 100%; } .app-header { min-height: 4.25rem; padding: .65rem .85rem; } .account-label { display: none; } .metric-grid { grid-template-columns: 1fr; } .page-header { display: block; } .page-header-actions { margin-top: .85rem; } .navigation-backdrop { inset-block-start: 4.25rem; height: calc(100dvh - 4.25rem); } .app-sidebar { inset-block-start: 4.25rem; } }
+@media (max-width: 480px) { .sales-invite-create { width: 100%; } }
 @media (max-width: 760px) { .provider-grid { grid-template-columns: 1fr; } .next-action { display: block; } .next-action .button { width: 100%; } }
 @media (max-width: 480px) { .filter-grid { grid-template-columns: 1fr; width: 100%; } .card-list { width: 100%; } }
 @media (max-width: 640px) { .dashboard-grid { grid-template-columns: 1fr; } }
