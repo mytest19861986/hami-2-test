@@ -36,6 +36,15 @@ function parseFinancialInteger(value, { positive = false, nonNegative = false } 
 function adminSummary(user) {
   return { id: user.id, phone: user.phone, firstName: user.profile?.firstName ?? null, lastName: user.profile?.lastName ?? null, maskedNationalId: maskNationalId(user.profile?.nationalId), status: user.status, roles: user.roles?.map((link) => link.role.name) ?? [], createdAt: user.createdAt };
 }
+function canPurchaseAsCustomer(roles = [], isProvider = false) {
+  const names = roles.map((link) => link.role.name);
+  return names.includes('SUPER_ADMIN') || (!isProvider && names.length === 1 && names[0] === 'USER');
+}
+function effectiveCapabilities(roles = [], isProvider = false) {
+  const capabilities = new Set(roles.flatMap((link) => link.role.permissions.map(({ permission }) => `${permission.resource}.${permission.action}`)));
+  if (!canPurchaseAsCustomer(roles, isProvider)) capabilities.delete('plans.select');
+  return [...capabilities].sort();
+}
 function profileView(profile) {
   if (!profile) return null;
   return {
@@ -171,9 +180,12 @@ class AuthController {
   async me(req) {
     const { auth } = cookieAuth(req);
     if (!auth) throw new Error('UNAUTHORIZED');
-    const user = await prisma.user.findUnique({ where: { id: auth.sub }, select: { id: true, phone: true, status: true, roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
+    const [user, providerMembership] = await Promise.all([
+      prisma.user.findUnique({ where: { id: auth.sub }, select: { id: true, phone: true, status: true, roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } }),
+      prisma.providerMembership.findFirst({ where: { userId: auth.sub }, select: { providerId: true } }),
+    ]);
     if (!user || user.status !== 'ACTIVE') throw new Error('UNAUTHORIZED');
-    return user;
+    return { ...user, capabilities: effectiveCapabilities(user.roles, Boolean(providerMembership)) };
   }
   async adminUsers(req) {
     await this.currentWithPermission(req, 'users.read');
@@ -401,10 +413,22 @@ class BenefitController {
   async plans() { const rows = await prisma.benefitPlan.findMany({ where: { status: 'ACTIVE' }, orderBy: { createdAt: 'desc' } }); return rows.map(planView); }
   async plan(req) { const row = await prisma.benefitPlan.findFirst({ where: { id: req.params.id, status: 'ACTIVE' } }); if (!row) throw new Error('PLAN_NOT_FOUND'); return planView(row); }
   async purchase(body, req) {
-    const user = await requireUser(req); const plan = await prisma.benefitPlan.findFirst({ where: { id: body.planId, status: 'ACTIVE' } });
-    if (!plan) throw new Error('PLAN_NOT_FOUND');
-    const row = await prisma.planPurchase.create({ data: { userId: user.id, planId: plan.id, amountSnapshot: plan.priceAmount, currencySnapshot: plan.currency, validityDaysSnapshot: plan.validityDays } });
-    await audit(user.id, 'PURCHASE_CREATED', 'PlanPurchase'); return purchaseView(row);
+    const actor = await new AuthController().currentWithPermission(req, 'plans.select');
+    const isProvider = await prisma.providerMembership.findFirst({ where: { userId: actor.id }, select: { providerId: true } });
+    if (!canPurchaseAsCustomer(actor.roles, Boolean(isProvider))) throw new Error('FORBIDDEN');
+    if (typeof body?.planId !== 'string' || !body.planId) throw new Error('PLAN_NOT_FOUND');
+    const lockKey = `plan-purchase:${actor.id}:${body.planId}`;
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0)) IS NULL AS locked`;
+      const plan = await tx.benefitPlan.findFirst({ where: { id: body.planId, status: 'ACTIVE' } });
+      if (!plan) throw new Error('PLAN_NOT_FOUND');
+      const existing = await tx.planPurchase.findFirst({ where: { userId: actor.id, planId: plan.id, status: 'PENDING_PAYMENT' }, orderBy: { createdAt: 'desc' } });
+      if (existing) return { row: existing, created: false };
+      const row = await tx.planPurchase.create({ data: { userId: actor.id, planId: plan.id, amountSnapshot: plan.priceAmount, currencySnapshot: plan.currency, validityDaysSnapshot: plan.validityDays } });
+      return { row, created: true };
+    });
+    if (result.created) await audit(actor.id, 'PURCHASE_CREATED', 'PlanPurchase', { entityId: result.row.id });
+    return purchaseView(result.row);
   }
   async myPurchases(req) { const user = await requireUser(req); const rows = await prisma.planPurchase.findMany({ where: { userId: user.id }, include: { membership: true, refundCase: true }, orderBy: { createdAt: 'desc' } }); return rows.map(purchaseView); }
   async myMemberships(req) { const user = await requireUser(req); return prisma.benefitMembership.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } }); }
@@ -1292,7 +1316,7 @@ Module({ controllers: [HealthController, LocationController, AuthController, Pro
 
 async function seedRbac() {
   const roles = ['SUPER_ADMIN', 'ADMIN', 'SUPPORT', 'COMPLIANCE_AUDITOR', 'SALES_PARTNER', 'USER'];
-  const permissions = [['users', 'read'], ['users', 'create'], ['users', 'update'], ['users', 'disable'], ['providers', 'read'], ['providers', 'create'], ['providers', 'update'], ['providers', 'approve'], ['providers', 'suspend'], ['providers', 'doctor_national_id.read'], ['providers', 'doctor_national_id.manage'], ['specialties', 'read'], ['specialties', 'manage'], ['roles', 'read'], ['roles', 'manage'], ['permissions', 'read'], ['permissions', 'manage'], ['audit', 'read'], ['compliance', 'audit_read'], ['plans', 'read'], ['plans', 'create'], ['plans', 'update'], ['plans', 'manage_providers'], ['purchases', 'read'], ['purchases', 'confirm_payment'], ['purchases', 'refund'], ['memberships', 'read'], ['memberships', 'approve'], ['memberships', 'reject'], ['eligibility', 'check'], ['redemptions', 'read'], ['redemptions', 'reverse'], ['commercial_settings', 'read'], ['commercial_settings', 'manage'], ['withdrawals', 'read'], ['withdrawals', 'approve'], ['withdrawals', 'reject'], ['withdrawals', 'mark_paid'], ['commissions', 'read'], ['commissions', 'summary_read'], ['commissions', 'approve'], ['commissions', 'reject'], ['sales_attributions', 'read'], ['sales_attributions', 'create'], ['sales_attributions', 'manage'], ['support', 'dashboard.read'], ['support', 'users.read'], ['support', 'providers.read'], ['support', 'purchases.read'], ['support', 'memberships.read'], ['support', 'redemptions.read'], ['support', 'refund_cases.read']];
+  const permissions = [['users', 'read'], ['users', 'create'], ['users', 'update'], ['users', 'disable'], ['providers', 'read'], ['providers', 'create'], ['providers', 'update'], ['providers', 'approve'], ['providers', 'suspend'], ['providers', 'doctor_national_id.read'], ['providers', 'doctor_national_id.manage'], ['specialties', 'read'], ['specialties', 'manage'], ['roles', 'read'], ['roles', 'manage'], ['permissions', 'read'], ['permissions', 'manage'], ['audit', 'read'], ['compliance', 'audit_read'], ['plans', 'read'], ['plans', 'select'], ['plans', 'create'], ['plans', 'update'], ['plans', 'manage_providers'], ['purchases', 'read'], ['purchases', 'confirm_payment'], ['purchases', 'refund'], ['memberships', 'read'], ['memberships', 'approve'], ['memberships', 'reject'], ['eligibility', 'check'], ['redemptions', 'read'], ['redemptions', 'reverse'], ['commercial_settings', 'read'], ['commercial_settings', 'manage'], ['withdrawals', 'read'], ['withdrawals', 'approve'], ['withdrawals', 'reject'], ['withdrawals', 'mark_paid'], ['commissions', 'read'], ['commissions', 'summary_read'], ['commissions', 'approve'], ['commissions', 'reject'], ['sales_attributions', 'read'], ['sales_attributions', 'create'], ['sales_attributions', 'manage'], ['support', 'dashboard.read'], ['support', 'users.read'], ['support', 'providers.read'], ['support', 'purchases.read'], ['support', 'memberships.read'], ['support', 'redemptions.read'], ['support', 'refund_cases.read']];
   for (const name of roles) await prisma.role.upsert({ where: { name }, update: {}, create: { name } });
   for (const [resource, action] of permissions) await prisma.permission.upsert({ where: { resource_action: { resource, action } }, update: {}, create: { resource, action } });
   const admin = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } });
@@ -1305,6 +1329,9 @@ async function seedRbac() {
     const permission = await prisma.permission.findUnique({ where: { resource_action: { resource, action } } });
     await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: salesPartner.id, permissionId: permission.id } }, update: {}, create: { roleId: salesPartner.id, permissionId: permission.id } });
   }
+  const customer = await prisma.role.findUnique({ where: { name: 'USER' } });
+  const planSelectionPermission = await prisma.permission.findUnique({ where: { resource_action: { resource: 'plans', action: 'select' } } });
+  await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: customer.id, permissionId: planSelectionPermission.id } }, update: {}, create: { roleId: customer.id, permissionId: planSelectionPermission.id } });
   const compliance = await prisma.role.findUnique({ where: { name: 'COMPLIANCE_AUDITOR' } });
   const compliancePermission = await prisma.permission.findUnique({ where: { resource_action: { resource: 'compliance', action: 'audit_read' } } });
   await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: compliance.id, permissionId: compliancePermission.id } }, update: {}, create: { roleId: compliance.id, permissionId: compliancePermission.id } });
