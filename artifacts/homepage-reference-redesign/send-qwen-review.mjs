@@ -2,7 +2,8 @@ import { readFile } from 'node:fs/promises';
 
 const targetId = process.argv[2];
 if (!targetId) throw new Error('Pass the verified Qwen page target ID.');
-const prompt = await readFile(new URL('./QWEN-REVIEW-PROMPT.txt', import.meta.url), 'utf8');
+const promptFile = process.argv[3] || './QWEN-REVIEW-PROMPT.txt';
+const prompt = await readFile(new URL(promptFile, import.meta.url), 'utf8');
 const targets = await fetch('http://127.0.0.1:9222/json/list').then((response) => response.json());
 const target = targets.find((item) => item.id === targetId);
 if (!target || !target.url.startsWith('https://chat.qwen.ai/')) throw new Error('The selected target is not Qwen.');

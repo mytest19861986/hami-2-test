@@ -1,0 +1,26 @@
+Independent Frontend / Accessibility review of the exact current build. Do not edit files or propose implementation changes in this review. The Project Owner has asked that the exact visual evidence and an independent Qwen review be delivered before the work stops for the Owner/Commander visual verdict.
+
+Exact source commit: d1a3f0b40b784e587ddd4adbfdb5be269baa49fc
+Branch: codex/homepage-reference-redesign-01
+Production: LOCKED / NO-GO. Merge: forbidden. Code changes: not authorized.
+
+Compare the actual reference, official Owner logo, screenshots, source, and interaction evidence below. All URLs are pinned to the exact source commit:
+- Reference: https://raw.githubusercontent.com/mytest19861986/hami-2-test/d1a3f0b40b784e587ddd4adbfdb5be269baa49fc/TEMP/homepage-reference.png
+- Owner logo: https://raw.githubusercontent.com/mytest19861986/hami-2-test/d1a3f0b40b784e587ddd4adbfdb5be269baa49fc/TEMP/homepage-logo.png
+- Current desktop 1440x900: https://raw.githubusercontent.com/mytest19861986/hami-2-test/d1a3f0b40b784e587ddd4adbfdb5be269baa49fc/artifacts/homepage-reference-redesign/after-desktop-1440x900.png
+- Current mobile 390x844: https://raw.githubusercontent.com/mytest19861986/hami-2-test/d1a3f0b40b784e587ddd4adbfdb5be269baa49fc/artifacts/homepage-reference-redesign/after-mobile-390x844.png
+- Current mobile drawer: https://raw.githubusercontent.com/mytest19861986/hami-2-test/d1a3f0b40b784e587ddd4adbfdb5be269baa49fc/artifacts/homepage-reference-redesign/mobile-drawer-390x844.png
+- Source JSX: https://raw.githubusercontent.com/mytest19861986/hami-2-test/d1a3f0b40b784e587ddd4adbfdb5be269baa49fc/apps/web/pages/index.jsx
+- Source CSS: https://raw.githubusercontent.com/mytest19861986/hami-2-test/d1a3f0b40b784e587ddd4adbfdb5be269baa49fc/apps/web/styles.css
+- Interaction checklist (75 checks): https://raw.githubusercontent.com/mytest19861986/hami-2-test/d1a3f0b40b784e587ddd4adbfdb5be269baa49fc/artifacts/homepage-reference-redesign/INTERACTION-CHECKLIST.txt
+- Implementation/evidence report: https://raw.githubusercontent.com/mytest19861986/hami-2-test/d1a3f0b40b784e587ddd4adbfdb5be269baa49fc/artifacts/homepage-reference-redesign/REPORT.md
+
+Please assess independently and adversarially:
+1. Exact visual fidelity to reference: hero composition, palette, spacing, typography, section order/height, search/filter, cards, footer, mobile, navigation/drawer. Distinguish verified observations from inference.
+2. The provider carousel and arrows, factual neutral labels, and responsive card layout at desktop/mobile.
+3. RTL/bidi, keyboard order, focus trap/restore, Escape/backdrop, tabs/autocomplete/native selects, visible focus, contrast, reduced motion, overflow; cite selectors or evidence.
+4. Likely tablet/breakpoint and maintainability issues in the shared homepage styles.
+5. Auth-gated /providers, /plans and /support behavior; do not suggest bypassing auth.
+6. Demo provider and benefit data; do not introduce unverified identities, discounts, prices, ratings, contracts, or counts.
+
+Return a complete review with P0/P1/P2 findings only if substantiated (otherwise explicitly say none), plus lower-priority polish, exact evidence, user impact, recommendation, whether the result is near-identical, and whether Owner visual acceptance is still required. A one-line response is not sufficient. Do not change files or initiate external actions.
