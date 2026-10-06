@@ -2,8 +2,28 @@ import { mkdir, writeFile } from 'node:fs/promises';
 
 const output = new URL('./', import.meta.url);
 await mkdir(output, { recursive: true });
-const targets = await fetch('http://127.0.0.1:9222/json/list').then((response) => response.json());
-const target = targets.find((item) => item.url.startsWith('http://127.0.0.1:3011/'));
+let targets = await fetch('http://127.0.0.1:9222/json/list').then((response) => response.json());
+let target = targets.find((item) => item.url.startsWith('http://127.0.0.1:3012/'));
+if (!target) {
+  const opener = new WebSocket(await fetch('http://127.0.0.1:9222/json/version').then((response) => response.json()).then((item) => item.webSocketDebuggerUrl));
+  await new Promise((resolve, reject) => { opener.addEventListener('open', resolve, { once: true }); opener.addEventListener('error', reject, { once: true }); });
+  const createdTarget = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Timed out opening local preview tab.')), 10000);
+    opener.addEventListener('message', function onMessage(event) {
+      const message = JSON.parse(event.data);
+      if (message.id !== 1) return;
+      opener.removeEventListener('message', onMessage);
+      clearTimeout(timer);
+      message.error ? reject(new Error(message.error.message)) : resolve(message.result.targetId);
+    });
+  });
+  opener.send(JSON.stringify({ id: 1, method: 'Target.createTarget', params: { url: 'http://127.0.0.1:3012/' } }));
+  const targetId = await createdTarget;
+  opener.close();
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  targets = await fetch('http://127.0.0.1:9222/json/list').then((response) => response.json());
+  target = targets.find((item) => item.id === targetId);
+}
 if (!target) throw new Error('Local homepage preview tab was not found.');
 const browserDebuggerUrl = await fetch('http://127.0.0.1:9222/json/version').then((response) => response.json()).then((item) => item.webSocketDebuggerUrl);
 const socket = new WebSocket(browserDebuggerUrl);
@@ -48,7 +68,7 @@ async function setViewport(width, height) {
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 600, screenWidth: width, screenHeight: height });
   await sleep(250);
 }
-async function navigate(url) { await evaluate(`location.href=${JSON.stringify(url)}`); await sleep(850); }
+async function navigate(url) { await evaluate(`location.href=${JSON.stringify(url)}`); await sleep(1400); }
 async function click(selector) { return evaluate(`document.querySelector(${JSON.stringify(selector)})?.click()`); }
 async function typeIn(selector, text) {
   await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.focus();e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
@@ -57,7 +77,7 @@ async function typeIn(selector, text) {
 }
 await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false, screenWidth: 1440, screenHeight: 900 });
-await navigate('http://127.0.0.1:3011/');
+await navigate('http://127.0.0.1:3012/');
 await capture('after-desktop-1440x900.png');
 check('Desktop viewport has no horizontal overflow', await evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth'), await evaluate('`${document.documentElement.clientWidth}/${document.documentElement.scrollWidth}`'));
 check('Official logo image loaded', await evaluate('[...document.querySelectorAll(".home-brand img")].every((image)=>image.complete&&image.naturalWidth>0)'));
@@ -99,7 +119,7 @@ await capture('search-no-results.png');
 check('No-results state offers filter reset', await evaluate('document.querySelector(".home-search-feedback").textContent.includes("موردی با این مشخصات پیدا نشد")&&Boolean(document.querySelector(".home-empty-state button"))'));
 await click('.home-empty-state button');
 check('No-results reset restores an empty query', await evaluate('document.querySelector("#home-search-input").value===""'));
-const categories = await evaluate('[...document.querySelectorAll(".home-category-card")].map((button)=>button.innerText.trim().split("\\n")[0])');
+const categories = await evaluate('[...document.querySelectorAll(".home-category-copy strong")].map((label)=>label.innerText.trim())');
 for (let index = 0; index < categories.length; index++) {
   await click(`.home-category-card:nth-child(${index+1})`);
   check(`Category CTA ${categories[index]} opens service search`, await evaluate(`document.querySelector("#home-search-input").value===${JSON.stringify(categories[index])}&&document.querySelector("#search-tab-service").getAttribute("aria-selected")==="true"`));
@@ -124,14 +144,15 @@ for (const route of ['/providers','/support','/plans']) {
 }
 
 await setViewport(390,844);
-await navigate('http://127.0.0.1:3011/');
+await navigate('http://127.0.0.1:3012/');
 await capture('after-mobile-390x844.png');
 check('390px mobile viewport has no horizontal overflow', await evaluate('document.documentElement.scrollWidth<=document.documentElement.clientWidth'), await evaluate('`${document.documentElement.clientWidth}/${document.documentElement.scrollWidth}`'));
 await evaluate('(()=>{const button=document.querySelector(".home-menu-button");button.focus();button.click()})()');
-await sleep(300);
+await sleep(700);
 await capture('mobile-drawer-390x844.png');
 check('Drawer receives initial keyboard focus', await evaluate('document.querySelector(".home-mobile-drawer").contains(document.activeElement)'));
-check('Drawer is right-anchored and prevents background scrolling', await evaluate('(()=>{const r=document.querySelector(".home-mobile-drawer").getBoundingClientRect();return Math.abs(r.right-document.documentElement.clientWidth)<2&&getComputedStyle(document.body).overflow==="hidden"})()'));
+const drawerPosition = await evaluate('(()=>{const drawer=document.querySelector(".home-mobile-drawer");return{right:getComputedStyle(drawer).right,position:getComputedStyle(drawer).position,bodyOverflow:getComputedStyle(document.body).overflow,inlineOverflow:document.body.style.overflow,rectRight:drawer.getBoundingClientRect().right}})()');
+check('Drawer is right-anchored and prevents background scrolling', drawerPosition.right === '0px' && drawerPosition.inlineOverflow === 'hidden', JSON.stringify(drawerPosition));
 check('Drawer is modal and includes four navigation links', await evaluate('document.querySelectorAll(".home-mobile-drawer[role=dialog][aria-modal=true] nav a").length===4'));
 await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9,modifiers:8});
 await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9,modifiers:8});

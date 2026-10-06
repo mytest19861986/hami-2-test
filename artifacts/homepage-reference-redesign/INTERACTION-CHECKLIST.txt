@@ -60,7 +60,7 @@ PASS | Route behavior: /support | auth-gated redirect to /login; not publicly ac
 PASS | Route behavior: /plans | auth-gated redirect to /login; not publicly accessible
 PASS | 390px mobile viewport has no horizontal overflow | 390/390
 PASS | Drawer receives initial keyboard focus
-PASS | Drawer is right-anchored and prevents background scrolling
+PASS | Drawer is right-anchored and prevents background scrolling | {"right":"0px","position":"fixed","bodyOverflow":"hidden","inlineOverflow":"hidden","rectRight":390}
 PASS | Drawer is modal and includes four navigation links
 PASS | Shift+Tab wraps focus to the last drawer action
 PASS | Tab wraps focus back to the first drawer control

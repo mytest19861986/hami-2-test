@@ -1,0 +1,18 @@
+این Second-Pass Visual/UX Review است؛ پاسخ قبلی‌ات دربارهٔ redesign direction کامل شده. اکنون پیاده‌سازی واقعی را در screenshotهای fresh بررسی کن؛ implementation یا تغییر فایل انجام نده.
+
+Owner hard constraint: صفحه باید تا حد ممکن نزدیک به تصویر مرجع باشد، نه صرفاً الهام‌گرفته. دقیقاً این موارد را بسنج: colors، spacing، layout، section order، card design، typography hierarchy، button style، search/filter، hero composition، mobile layout، drawer/navigation و footer.
+
+Reference: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/TEMP/homepage-reference.png
+Owner logo: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/TEMP/homepage-logo.png
+AFTER desktop 1440x900: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/after-desktop-1440x900.png
+AFTER mobile 390x844: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/after-mobile-390x844.png
+Mobile drawer: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/mobile-drawer-390x844.png
+
+لطفاً خروجی کامل بده:
+1) verdict صریح: near-identical / close but not near-identical / not close.
+2) حداکثر 5 deviation دیداری با شاهد مشخص (بخش، viewport و اختلاف قابل‌مشاهده)، شدت P1/P2 و اصلاح پیشنهادی.
+3) جدا کن کدام اختلاف‌ها عمداً برای جلوگیری از داده/ادعای درمانی یا مالی ساختگی هستند: قیمت/درصد تخفیف/ratings/countهای واقعی در dataset تأیید نشده‌اند.
+4) mobile/desktop هر دو را ارزیابی کن؛ صرف RTL و نبود overflow کافی نیست.
+5) آیا با شواهد فعلی Owner visual acceptance قابل درخواست است؟ محدودیت بررسی را هم بگو.
+
+یک حکم کلی یا پاسخ یک‌خطی کافی نیست؛ باید screenshotهای لینک‌شده واقعاً بررسی شوند.

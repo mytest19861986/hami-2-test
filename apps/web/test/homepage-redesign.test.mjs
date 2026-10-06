@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../pages/index.jsx', import.meta.url), 'utf8');
+const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8');
 
 test('homepage preserves the reference page sections and RTL document language', () => {
   assert.match(source, /<div className="home-page" dir="rtl" lang="fa">/);
@@ -34,4 +35,15 @@ test('mobile navigation is a labelled dialog and offers an explicit close contro
   assert.match(source, /event\.key !== 'Tab'/);
   assert.match(source, /event\.shiftKey/);
   assert.match(source, /previousFocus\.focus\(\)/);
+  assert.match(source, /input:not\(\[disabled\]\)/);
+  assert.match(source, /select:not\(\[disabled\]\)/);
+  assert.match(source, /textarea:not\(\[disabled\]\)/);
+});
+
+test('homepage keeps provider cards in semantic RTL grid order and meets mobile touch sizing', () => {
+  assert.match(styles, /\.home-provider-card\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+92px;[^}]*grid-template-areas:\s*"copy art"/s);
+  assert.doesNotMatch(styles, /\.home-provider-card\s*\{[^}]*direction:\s* ltr/s);
+  assert.match(styles, /\.home-search-tab\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(styles, /\.home-category-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(styles, /\.home-provider-meta\s*\{[^}]*color:\s*#596b71/i);
 });

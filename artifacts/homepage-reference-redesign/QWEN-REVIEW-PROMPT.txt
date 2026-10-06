@@ -1,0 +1,19 @@
+این درخواست، review مستقل Frontend/Accessibility است؛ هیچ فایلی را تغییر نده و implementation انجام نده.
+
+لطفاً مرجع اصلی، لوگوی رسمی Owner، build فعلی و source را با هم مقایسه کن:
+- Reference: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/TEMP/homepage-reference.png
+- Owner logo: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/TEMP/homepage-logo.png
+- Current desktop 1440x900: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/after-desktop-1440x900.png
+- Current mobile 390x844: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/after-mobile-390x844.png
+- Source JSX: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/apps/web/pages/index.jsx
+- Source CSS: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/apps/web/styles.css
+- Interaction checklist: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/INTERACTION-CHECKLIST.txt
+
+Scope:
+1) ارزیابی fidelity دیداری: ترکیب hero، رنگ، spacing، typography، ترتیب و ارتفاع بخش‌ها، طراحی search/filter، کارت‌ها، footer و تطبیق layout دسکتاپ/موبایل با تصویر؛ deviationها را دقیق نام ببر.
+2) بازبینی معماری shared styles و پاسخ‌گویی؛ مواردی که در breakpointهای دیگر احتمال شکست دارند.
+3) accessibility adversarial: RTL/bidi، keyboard order، focus trap/restore در drawer، Escape/backdrop، tablist/autocomplete، labelها، native selects، focus-visible، contrast، reduced motion، overflow.
+4) لینک‌های /providers، /plans و /support در build فعلی به login هدایت می‌شوند؛ به هیچ وجه پیشنهاد auth bypass نده. بررسی کن که این محدودیت تجربهٔ homepage را چگونه تحت تأثیر می‌گذارد.
+5) محتوای provider/price/rating/discount عمداً mock و با برچسب نمایشی است؛ داده/مزیت ساختگی پیشنهاد نده.
+
+خروجی کامل و مستقل بده: یافته‌ها با severity P0/P1/P2، شاهد مشخص از screenshot یا selector/code، اثر کاربر، توصیهٔ عملی؛ سپس بگو آیا تصویر فعلی near-identical هست یا هنوز owner visual acceptance لازم دارد. اگر finding نداری، صریح بگو چه مواردی را بررسی کردی و محدودیت بررسی چه بود. پاسخ یک خطی کافی نیست.

@@ -113,7 +113,7 @@ export default function Home() {
     const onKeyDown = (event) => {
       if (event.key === 'Escape') { setDrawerOpen(false); return; }
       if (event.key !== 'Tab') return;
-      const focusable = drawerRef.current?.querySelectorAll('a[href], button:not([disabled])');
+      const focusable = drawerRef.current?.querySelectorAll('a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"]):not([disabled])');
       if (!focusable?.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -233,7 +233,7 @@ export default function Home() {
             <div className="home-query-field">
               <Icon name="search" size={20} />
               <label className="home-visually-hidden" htmlFor="home-search-input">{activeSearchTab.placeholder}</label>
-              <input id="home-search-input" type="search" autoComplete="off" value={query} placeholder={activeSearchTab.placeholder} aria-label={activeSearchTab.placeholder} aria-expanded={searchState === 'autocomplete'} aria-controls="home-search-suggestions" aria-activedescendant={suggestionIndex >= 0 ? `home-suggestion-${suggestionIndex}` : undefined} onFocus={() => { if (searchState === 'idle' || searchState === 'results' || searchState === 'empty') setSearchState('autocomplete'); }} onChange={(event) => { setQuery(event.target.value); setSearchState('autocomplete'); setSuggestionIndex(-1); }} onKeyDown={handleQueryKeyDown} />
+              <input id="home-search-input" type="search" autoComplete="off" value={query} placeholder={activeSearchTab.placeholder} aria-expanded={searchState === 'autocomplete'} aria-controls="home-search-suggestions" aria-activedescendant={suggestionIndex >= 0 ? `home-suggestion-${suggestionIndex}` : undefined} onFocus={() => { if (searchState === 'idle' || searchState === 'results' || searchState === 'empty') setSearchState('autocomplete'); }} onChange={(event) => { setQuery(event.target.value); setSearchState('autocomplete'); setSuggestionIndex(-1); }} onKeyDown={handleQueryKeyDown} />
               {query && <button className="home-clear-query" type="button" aria-label="پاک کردن جستجو" onClick={() => { setQuery(''); setSearchState('autocomplete'); globalThis.document.getElementById('home-search-input')?.focus(); }}>×</button>}
               {searchState === 'autocomplete' && <div className="home-autocomplete" id="home-search-suggestions" role="listbox" aria-label="پیشنهادهای جستجو">
                 <p>{query.trim() ? 'پیشنهاد جستجو' : 'جستجوهای پرطرفدار'}</p>
