@@ -23,6 +23,8 @@ PASS | Category CTA ارتوپدی opens service search
 PASS | Category CTA زنان و زایمان opens service search
 PASS | Category CTA داروخانه opens service search
 PASS | Every provider card has a directory destination
+PASS | Provider carousel next control changes visible samples
+PASS | Provider carousel previous control restores initial samples
 PASS | Login and signup header/footer CTAs point to their routes
 PASS | Link activation: حامی‌کارت سامانه تخفیف درمانی → / | /
 PASS | Link activation: خانه → #home | #home
@@ -59,6 +61,7 @@ PASS | Route behavior: /providers | auth-gated redirect to /login; not publicly 
 PASS | Route behavior: /support | auth-gated redirect to /login; not publicly accessible
 PASS | Route behavior: /plans | auth-gated redirect to /login; not publicly accessible
 PASS | 390px mobile viewport has no horizontal overflow | 390/390
+PASS | Mobile menu control is available at 390px
 PASS | Drawer receives initial keyboard focus
 PASS | Drawer is right-anchored and prevents background scrolling | {"right":"0px","position":"fixed","bodyOverflow":"hidden","inlineOverflow":"hidden","rectRight":390}
 PASS | Drawer is modal and includes four navigation links

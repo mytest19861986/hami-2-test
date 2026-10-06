@@ -23,6 +23,7 @@ const demoProviders = [
   { kind: 'center', name: 'مرکز نمونه تصویربرداری', specialty: 'تصویربرداری پزشکی', location: 'اطلاعات موقعیت نمایشی', image: '/home-demo-imaging.png', tone: 'peach' },
   { kind: 'doctor', name: 'متخصص نمونه', specialty: 'متخصص پوست و مو', location: 'اطلاعات موقعیت نمایشی', image: '/home-demo-doctor-b.png', tone: 'blue' },
   { kind: 'center', name: 'آزمایشگاه نمونه', specialty: 'آزمایش‌های تشخیصی', location: 'اطلاعات موقعیت نمایشی', image: '/home-demo-doctor-c.png', tone: 'lilac' },
+  { kind: 'doctor', name: 'پزشک نمونه دوم', specialty: 'خدمات تخصصی', location: 'اطلاعات موقعیت نمایشی', image: '/home-demo-doctor-a.png', tone: 'mint' },
 ];
 
 const benefits = [
@@ -93,10 +94,12 @@ export default function Home() {
   const [searchState, setSearchState] = useState('idle');
   const [suggestionIndex, setSuggestionIndex] = useState(-1);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [providerPage, setProviderPage] = useState(0);
   const searchTimer = useRef(null);
   const drawerRef = useRef(null);
   const menuButtonRef = useRef(null);
   const activeSearchTab = searchTabs.find((tab) => tab.id === activeTab) || searchTabs[0];
+  const visibleProviders = Array.from({ length: 4 }, (_, index) => demoProviders[(providerPage + index) % demoProviders.length]);
   const autocompleteItems = useMemo(() => {
     const text = query.trim().toLocaleLowerCase('fa');
     if (!text) return suggestions;
@@ -260,8 +263,12 @@ export default function Home() {
       </section>
 
       <section className="home-section home-providers" id="providers" aria-labelledby="providers-title">
-        <div className="home-section-heading"><div><p className="home-section-kicker">برای آشنایی با تجربه جستجو</p><h2 id="providers-title">پزشکان و مراکز محبوب طرف قرارداد</h2><p>کارت‌های زیر نمونه طراحی‌اند؛ اطلاعات واقعی هنوز به این صفحه متصل نیست.</p></div><a className="home-text-link" href="/providers">مشاهده همه مراکز <Icon name="arrow" size={17} /></a></div>
-        <div className="home-provider-grid">{demoProviders.map((provider) => <ProviderCard key={provider.name} provider={provider} />)}</div>
+        <div className="home-section-heading"><div><p className="home-section-kicker">برای آشنایی با تجربه جستجو</p><h2 id="providers-title">پزشکان و مراکز</h2><p>کارت‌های زیر نمونه طراحی‌اند؛ اطلاعات واقعی هنوز به این صفحه متصل نیست.</p></div><a className="home-text-link" href="/providers">مشاهده همه مراکز <Icon name="arrow" size={17} /></a></div>
+        <div className="home-provider-carousel">
+          <button className="home-provider-control home-provider-control--previous" type="button" aria-label="نمایش نمونه‌های قبلی" onClick={() => setProviderPage((page) => (page + demoProviders.length - 1) % demoProviders.length)}><Icon name="chevronLeft" size={20} /></button>
+          <div className="home-provider-grid" aria-live="polite">{visibleProviders.map((provider, index) => <ProviderCard key={`${provider.name}-${providerPage}-${index}`} provider={provider} />)}</div>
+          <button className="home-provider-control home-provider-control--next" type="button" aria-label="نمایش نمونه‌های بعدی" onClick={() => setProviderPage((page) => (page + 1) % demoProviders.length)}><Icon name="chevronLeft" size={20} /></button>
+        </div>
       </section>
 
       <section className="home-how" id="how-it-works" aria-labelledby="how-title">

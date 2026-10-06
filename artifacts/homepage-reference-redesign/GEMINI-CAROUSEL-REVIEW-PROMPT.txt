@@ -1,0 +1,18 @@
+Final screenshot-only check of the latest local/test build. Do not edit files or infer production readiness.
+
+Reference: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/TEMP/homepage-reference.png
+Official logo: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/TEMP/homepage-logo.png
+Latest desktop 1440x900: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/after-desktop-1440x900.png
+Latest mobile 390x844: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/after-mobile-390x844.png
+Latest mobile drawer: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/mobile-drawer-390x844.png
+
+Owner hard constraint: visually match the reference as closely as possible. Explicitly assess colors, section order, composition, spacing, typography, cards, search/filter, mobile layout, navigation/drawer, and footer. Do not substitute subjective preference for reference fidelity.
+
+Since your last review, the provider heading was made factual/neutral (“پزشکان و مراکز”) instead of the unverified claim “محبوب طرف قرارداد”, and functional previous/next controls were added around the four visible sample provider cards. All sample identities and benefits remain disclosed as demo; no real contract, discount, price, rating, or provider count is claimed.
+
+Please give a full review, not a one-line answer:
+1. Verdict: near-identical / close but not near-identical / not close.
+2. Compare latest desktop/mobile against the reference and list up to five highest-impact remaining visual deviations with concrete changes.
+3. Assess the visible carousel arrows/card strip and whether their treatment matches the reference; note that screenshot review cannot verify touch interaction.
+4. State whether Owner visual acceptance can now be requested.
+5. List any material limitations of static screenshot review.
