@@ -31,4 +31,7 @@ test('mobile navigation is a labelled dialog and offers an explicit close contro
   assert.match(source, /role="dialog" aria-modal="true" aria-label="منوی اصلی"/);
   assert.match(source, /aria-label="بستن منو"/);
   assert.match(source, /event\.key === 'Escape'/);
+  assert.match(source, /event\.key !== 'Tab'/);
+  assert.match(source, /event\.shiftKey/);
+  assert.match(source, /previousFocus\.focus\(\)/);
 });

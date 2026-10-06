@@ -95,6 +95,7 @@ export default function Home() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const searchTimer = useRef(null);
   const drawerRef = useRef(null);
+  const menuButtonRef = useRef(null);
   const activeSearchTab = searchTabs.find((tab) => tab.id === activeTab) || searchTabs[0];
   const autocompleteItems = useMemo(() => {
     const text = query.trim().toLocaleLowerCase('fa');
@@ -106,11 +107,25 @@ export default function Home() {
   useEffect(() => {
     if (!drawerOpen) return undefined;
     const previousOverflow = globalThis.document.body.style.overflow;
+    const previousFocus = globalThis.document.activeElement;
     globalThis.document.body.style.overflow = 'hidden';
     drawerRef.current?.querySelector('a, button')?.focus();
-    const onKeyDown = (event) => { if (event.key === 'Escape') setDrawerOpen(false); };
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') { setDrawerOpen(false); return; }
+      if (event.key !== 'Tab') return;
+      const focusable = drawerRef.current?.querySelectorAll('a[href], button:not([disabled])');
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && globalThis.document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && globalThis.document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
     globalThis.document.addEventListener('keydown', onKeyDown);
-    return () => { globalThis.document.body.style.overflow = previousOverflow; globalThis.document.removeEventListener('keydown', onKeyDown); };
+    return () => {
+      globalThis.document.body.style.overflow = previousOverflow;
+      globalThis.document.removeEventListener('keydown', onKeyDown);
+      if (previousFocus instanceof globalThis.HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    };
   }, [drawerOpen]);
 
   function chooseSuggestion(value) {
@@ -170,7 +185,7 @@ export default function Home() {
           <a className="home-button home-button--outline home-login" href="/login">ورود</a>
           <a className="home-button home-button--orange home-header-cta" href="/register">دریافت حامی‌کارت</a>
         </div>
-        <button className="home-menu-button" type="button" aria-label="باز کردن منو" aria-expanded={drawerOpen} aria-controls="home-mobile-drawer" onClick={() => setDrawerOpen(true)}><Icon name="menu" size={24} /></button>
+        <button className="home-menu-button" ref={menuButtonRef} type="button" aria-label="باز کردن منو" aria-expanded={drawerOpen} aria-controls="home-mobile-drawer" onClick={() => setDrawerOpen(true)}><Icon name="menu" size={24} /></button>
       </div>
     </header>
 
