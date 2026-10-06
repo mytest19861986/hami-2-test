@@ -1,0 +1,68 @@
+PASS | Desktop viewport has no horizontal overflow | 1425/1425
+PASS | Official logo image loaded
+PASS | Homepage sections are in reference order
+PASS | All navigation/footer links have usable destinations
+PASS | Search tab پزشک selects
+PASS | Search tab مرکز درمانی selects
+PASS | Search tab خدمات و آزمایش‌ها selects
+PASS | Default autocomplete suggestions appear
+PASS | Typed autocomplete suggestion appears
+PASS | ArrowDown updates active autocomplete choice
+PASS | Enter selects active autocomplete choice
+PASS | Specialty and city dropdowns accept selections
+PASS | Clear-query control clears the field
+PASS | Search loading state renders and disables submit
+PASS | Search results state is explicitly disclosed as demo
+PASS | No-results state offers filter reset
+PASS | No-results reset restores an empty query
+PASS | Category CTA دندان‌پزشکی opens service search
+PASS | Category CTA تصویربرداری opens service search
+PASS | Category CTA پوست و مو opens service search
+PASS | Category CTA آزمایشگاه opens service search
+PASS | Category CTA ارتوپدی opens service search
+PASS | Category CTA زنان و زایمان opens service search
+PASS | Category CTA داروخانه opens service search
+PASS | Every provider card has a directory destination
+PASS | Login and signup header/footer CTAs point to their routes
+PASS | Link activation: حامی‌کارت سامانه تخفیف درمانی → / | /
+PASS | Link activation: خانه → #home | #home
+PASS | Link activation: پزشکان و مراکز → #providers | #providers
+PASS | Link activation: طرح‌های عضویت → /plans | /plans
+PASS | Link activation: درباره ما → #how-it-works | #how-it-works
+PASS | Link activation: ورود → /login | /login
+PASS | Link activation: دریافت حامی‌کارت → /register | /register
+PASS | Link activation: دریافت حامی‌کارت → /register | /register
+PASS | Link activation: مشاهده پزشکان و مراکز → #providers | #providers
+PASS | Link activation: حامی‌کارت سامانه تخفیف درمانی → / | /
+PASS | Link activation: مشاهده همه مراکز → /providers | /providers
+PASS | Link activation: نمونه نمایشی → /providers | /providers
+PASS | Link activation: مشاهده فهرست خدمات → /providers | /providers
+PASS | Link activation: نمونه نمایشی → /providers | /providers
+PASS | Link activation: مشاهده فهرست خدمات → /providers | /providers
+PASS | Link activation: نمونه نمایشی → /providers | /providers
+PASS | Link activation: مشاهده فهرست خدمات → /providers | /providers
+PASS | Link activation: نمونه نمایشی → /providers | /providers
+PASS | Link activation: مشاهده فهرست خدمات → /providers | /providers
+PASS | Link activation: آشنایی و ثبت‌نام → /register | /register
+PASS | Link activation: حامی‌کارت سامانه تخفیف درمانی → / | /
+PASS | Link activation: خدمات درمانی → #categories | #categories
+PASS | Link activation: پزشکان و مراکز → #providers | #providers
+PASS | Link activation: چطور کار می‌کند → #how-it-works | #how-it-works
+PASS | Link activation: ورود → /login | /login
+PASS | Link activation: ثبت‌نام → /register | /register
+PASS | Link activation: داشبورد → /dashboard | /dashboard
+PASS | Link activation: پشتیبانی → /support | /support
+PASS | Link activation: فهرست مراکز → /providers | /providers
+PASS | Link activation: بازگشت به بالا → #home | #home
+PASS | Link activation: دریافت حامی‌کارت → /register | /register
+PASS | Route behavior: /providers | auth-gated redirect to /login; not publicly accessible
+PASS | Route behavior: /support | auth-gated redirect to /login; not publicly accessible
+PASS | Route behavior: /plans | auth-gated redirect to /login; not publicly accessible
+PASS | 390px mobile viewport has no horizontal overflow | 390/390
+PASS | Drawer is right-anchored and prevents background scrolling
+PASS | Drawer is modal and includes four navigation links
+PASS | Close icon closes drawer
+PASS | Escape closes drawer
+PASS | Backdrop click closes drawer
+PASS | Login error state is visible using local-only demo data
+PASS | No unexpected application console/runtime errors
