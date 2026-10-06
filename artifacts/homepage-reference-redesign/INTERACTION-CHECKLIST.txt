@@ -35,13 +35,13 @@ PASS | Link activation: دریافت حامی‌کارت → /register | /regist
 PASS | Link activation: مشاهده پزشکان و مراکز → #providers | #providers
 PASS | Link activation: حامی‌کارت سامانه تخفیف درمانی → / | /
 PASS | Link activation: مشاهده همه مراکز → /providers | /providers
-PASS | Link activation: نمونه نمایشی → /providers | /providers
+PASS | Link activation: مشاهده فهرست خدمات پزشک نمونه → /providers | /providers
 PASS | Link activation: مشاهده فهرست خدمات → /providers | /providers
-PASS | Link activation: نمونه نمایشی → /providers | /providers
+PASS | Link activation: مشاهده فهرست خدمات مرکز نمونه تصویربرداری → /providers | /providers
 PASS | Link activation: مشاهده فهرست خدمات → /providers | /providers
-PASS | Link activation: نمونه نمایشی → /providers | /providers
+PASS | Link activation: مشاهده فهرست خدمات متخصص نمونه → /providers | /providers
 PASS | Link activation: مشاهده فهرست خدمات → /providers | /providers
-PASS | Link activation: نمونه نمایشی → /providers | /providers
+PASS | Link activation: مشاهده فهرست خدمات آزمایشگاه نمونه → /providers | /providers
 PASS | Link activation: مشاهده فهرست خدمات → /providers | /providers
 PASS | Link activation: آشنایی و ثبت‌نام → /register | /register
 PASS | Link activation: حامی‌کارت سامانه تخفیف درمانی → / | /

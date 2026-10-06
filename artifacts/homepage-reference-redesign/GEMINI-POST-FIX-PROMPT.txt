@@ -1,0 +1,19 @@
+این بازبینیِ پس از اصلاحات است؛ پاسخ کامل دور قبل دریافت شده. لطفاً فقط بیلد و screenshotهای تازهٔ فعلی همین branch را ارزیابی کن؛ هیچ فایلی تغییر نده.
+
+Reference: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/TEMP/homepage-reference.png
+Owner logo: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/TEMP/homepage-logo.png
+Fresh desktop 1440x900: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/after-desktop-1440x900.png
+Fresh mobile 390x844: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/after-mobile-390x844.png
+Fresh drawer 390x844: https://raw.githubusercontent.com/mytest19861986/hami-2-test/codex/homepage-reference-redesign-01/artifacts/homepage-reference-redesign/mobile-drawer-390x844.png
+
+Owner hard constraint remains: visually match the reference as closely as possible; deviations must be explicit. Earlier you flagged search overlap/shadow, provider-card badge placement, header CTA spacing/radius, mobile category proportions, and drawer spacing. These were adjusted: desktop search overlap is -42px to avoid covering hero CTAs; shadow softened; provider badge is neutral `نمونه نمایشی` and placed at the card's upper-right; header controls have wider spacing/rounding; mobile categories are three-column with icon above label; drawer links have wider right padding and separators.
+
+Important integrity boundary: do not recommend claiming “طرف قرارداد”, “پذیرش فعال”, discounts, prices, ratings, or network counts unless verified. The neutral demo badge is intentional.
+
+Please respond with:
+1. Explicit verdict: near-identical / close but not near-identical / not close.
+2. Whether each previously flagged visual deviation is resolved, partly resolved, or remains, using desktop/mobile screenshot evidence.
+3. Any remaining highest-impact deviations (max 5) and concrete fixes that do not introduce unverified facts.
+4. State whether Owner visual acceptance can now be requested; note limitations of static screenshot review.
+
+Provide a full review, not a one-line answer.

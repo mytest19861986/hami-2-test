@@ -70,8 +70,8 @@ function Brand({ compact = false }) {
 
 function ProviderCard({ provider }) {
   return <article className="home-provider-card">
+    <span className="home-provider-demo">نمونه نمایشی</span>
     <a className={`home-provider-art home-provider-art--${provider.tone}`} href="/providers" aria-label={`مشاهده فهرست خدمات ${provider.name}`}>
-      <span className="home-provider-demo">نمونه نمایشی</span>
       <img src={provider.image} alt="" width="96" height="100" loading="lazy" />
     </a>
     <div className="home-provider-copy">
