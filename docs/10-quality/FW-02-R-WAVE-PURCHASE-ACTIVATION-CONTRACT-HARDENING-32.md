@@ -6,6 +6,22 @@
 **Implementation in this wave:** None
 **Production:** LOCKED / NO-GO
 
+> **Historical snapshot notice (reconciled 2026-10-06):** This document records
+> the Wave 32 review state and is not a statement of current HEAD behavior.
+> Later authorized waves changed purchase confirmation and membership
+> activation. At `c141820fecd0e7852a5adc5d78b20553ecd6e901`,
+> `BenefitController.confirm` requires `purchases.confirm_payment`, accepts a
+> non-empty caller-supplied `paymentReference` (maximum 160 characters),
+> rejects a PAID replay whose reference differs from the stored value, and
+> rejects a PAID purchase with no membership rather than repairing it. The
+> PENDING_PAYMENT-to-PAID transition is conditional; membership activation is
+> controlled separately by the configured automatic/manual activation path.
+> This remains an internal authorized confirmation only: no PSP attestation,
+> callback signature, or server-to-server payment verification is established
+> by `paymentReference`. See `WAVE43-VERIFICATION-CLOSURE-2026-10-06.md` and
+> `FW-02-R-WAVE-PSP-REFUND-VERIFICATION-GATE-36.md` for current scope and the
+> external-provider boundary.
+
 ## 1. Scope and method
 
 This is a source-grounded contract review, not an implementation. The review
@@ -365,9 +381,15 @@ data cleanup is authorized by this document.
    auto-approval setting is semantically unrelated.
 3. **Refund ambiguity:** internal `REFUNDED` does not prove external money
    returned; pending membership is not closed by current refund handler.
-4. **Replay mismatch:** already-PAID replay does not compare a newly submitted
-   payment reference with the stored reference; an absent membership can be
-   repaired as ACTIVE without replaying payment-linked side effects.
+4. **Replay mismatch (historical Wave 32 finding; superseded at current HEAD):**
+   Wave 32 recorded that a PAID replay did not compare the supplied reference
+   and could repair a missing membership. At current HEAD
+   `c141820fecd0e7852a5adc5d78b20553ecd6e901`, `BenefitController.confirm`
+   returns `IDEMPOTENCY_CONFLICT` for a mismatched reference and
+   `PAID_PURCHASE_MEMBERSHIP_INCONSISTENT` when the membership is absent; it
+   does not perform that repair. `apps/api/test/benefit-flow.integration.test.mjs`
+   verifies the mismatched replay returns 409. The historical observation is
+   retained here for audit lineage, not as a current defect.
 5. **Insufficient decision provenance:** current generic audit entries cannot
    identify a purchase/membership target or record the decision mode/reason.
 6. **Operational guards:** current confirm logic does not re-check user/plan
