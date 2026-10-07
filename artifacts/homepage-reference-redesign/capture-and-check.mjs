@@ -2,8 +2,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 
 const output = new URL('./', import.meta.url);
 await mkdir(output, { recursive: true });
+const previewUrl = process.env.HAMI_PREVIEW_URL || 'http://localhost:3130/';
 let targets = await fetch('http://127.0.0.1:9222/json/list').then((response) => response.json());
-let target = targets.find((item) => item.url.startsWith('http://127.0.0.1:3012/'));
+let target = targets.find((item) => item.url.startsWith(previewUrl));
 if (!target) {
   const opener = new WebSocket(await fetch('http://127.0.0.1:9222/json/version').then((response) => response.json()).then((item) => item.webSocketDebuggerUrl));
   await new Promise((resolve, reject) => { opener.addEventListener('open', resolve, { once: true }); opener.addEventListener('error', reject, { once: true }); });
@@ -17,7 +18,7 @@ if (!target) {
       message.error ? reject(new Error(message.error.message)) : resolve(message.result.targetId);
     });
   });
-  opener.send(JSON.stringify({ id: 1, method: 'Target.createTarget', params: { url: 'http://127.0.0.1:3012/' } }));
+  opener.send(JSON.stringify({ id: 1, method: 'Target.createTarget', params: { url: previewUrl } }));
   const targetId = await createdTarget;
   opener.close();
   await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -25,33 +26,54 @@ if (!target) {
   target = targets.find((item) => item.id === targetId);
 }
 if (!target) throw new Error('Local homepage preview tab was not found.');
-const browserDebuggerUrl = await fetch('http://127.0.0.1:9222/json/version').then((response) => response.json()).then((item) => item.webSocketDebuggerUrl);
-const socket = new WebSocket(browserDebuggerUrl);
+const socket = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => {
   socket.addEventListener('open', resolve, { once: true });
   socket.addEventListener('error', reject, { once: true });
 });
 let sequence = 0;
-let sessionId;
 const pending = new Map();
 const errors = [];
+const capturedScreenshots = [];
+let mockLoginFailureEnabled = false;
+let mockLoginFailureHit = false;
 socket.addEventListener('message', (event) => {
   const message = JSON.parse(event.data);
   if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.text);
   if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') errors.push(message.params.args.map((item) => item.value || item.description || '').join(' '));
+  if (message.method === 'Fetch.requestPaused') {
+    const requestUrl = message.params.request.url;
+    if (mockLoginFailureEnabled && requestUrl.includes('/api/v1/auth/login/password')) {
+      mockLoginFailureHit = true;
+      void send('Fetch.fulfillRequest', {
+        requestId: message.params.requestId,
+        responseCode: 401,
+        responseHeaders: [{ name: 'content-type', value: 'application/json; charset=utf-8' }],
+        body: Buffer.from(JSON.stringify({ error: 'AUTH_FAILED' })).toString('base64'),
+      });
+    } else {
+      void send('Fetch.continueRequest', { requestId: message.params.requestId });
+    }
+  }
   if (message.id && pending.has(message.id)) {
     const callbacks = pending.get(message.id);
     pending.delete(message.id);
+    clearTimeout(callbacks.timer);
     if (message.error) callbacks.reject(new Error(message.error.message));
     else callbacks.resolve(message.result);
   }
 });
 function send(method, params = {}) {
   const id = ++sequence;
-  socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-  return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+  socket.send(JSON.stringify({ id, method, params }));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error(`CDP command timed out after 8s: ${method} (id ${id})`));
+    }, 8000);
+    pending.set(id, { resolve, reject, timer });
+  });
 }
-sessionId = (await send('Target.attachToTarget', { targetId: target.id, flatten: true })).sessionId;
 async function evaluate(expression) {
   const response = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
   if (response.exceptionDetails) throw new Error(response.exceptionDetails.text);
@@ -61,14 +83,39 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const checks = [];
 const check = (name, pass, details = '') => checks.push({ name, pass: Boolean(pass), details });
 async function capture(name) {
-  const image = await send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: false });
-  await writeFile(new URL(name, output), Buffer.from(image.data, 'base64'));
+  await send('Page.bringToFront');
+  await evaluate('(()=>{let style=document.getElementById("hami-evidence-pointer-style");if(!style){style=document.createElement("style");style.id="hami-evidence-pointer-style";style.textContent="*,*::before,*::after{cursor:none!important}";document.head.appendChild(style)}return true})()');
+  try {
+    const image = await send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: false });
+    await writeFile(new URL(name, output), Buffer.from(image.data, 'base64'));
+    capturedScreenshots.push(name);
+  } finally {
+    await evaluate('document.getElementById("hami-evidence-pointer-style")?.remove()');
+  }
+}
+async function captureElement(selector, name) {
+  const box = await evaluate(`(()=>{const node=document.querySelector(${JSON.stringify(selector)});if(!node)return null;const rect=node.getBoundingClientRect();return{x:rect.left+scrollX,y:rect.top+scrollY,width:rect.width,height:rect.height}})()`);
+  if (!box || box.width < 1 || box.height < 1) throw new Error(`Evidence section is missing or empty: ${selector}`);
+  await send('Page.bringToFront');
+  await evaluate('(()=>{let style=document.getElementById("hami-evidence-pointer-style");if(!style){style=document.createElement("style");style.id="hami-evidence-pointer-style";style.textContent="*,*::before,*::after{cursor:none!important}";document.head.appendChild(style)}return true})()');
+  try {
+    const image = await send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: true, clip: { ...box, scale: 1 } });
+    await writeFile(new URL(name, output), Buffer.from(image.data, 'base64'));
+    capturedScreenshots.push(name);
+  } finally {
+    await evaluate('document.getElementById("hami-evidence-pointer-style")?.remove()');
+  }
 }
 async function setViewport(width, height) {
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 600, screenWidth: width, screenHeight: height });
   await sleep(250);
 }
 async function navigate(url) { await evaluate(`location.href=${JSON.stringify(url)}`); await sleep(1400); }
+async function captureSection(selector, name, block = 'start') {
+  await evaluate(`document.querySelector(${JSON.stringify(selector)})?.scrollIntoView({block:${JSON.stringify(block)},behavior:'auto'})`);
+  await sleep(350);
+  await capture(name);
+}
 async function click(selector) { return evaluate(`document.querySelector(${JSON.stringify(selector)})?.click()`); }
 async function typeIn(selector, text) {
   await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.focus();e.value='';e.dispatchEvent(new Event('input',{bubbles:true}));})()`);
@@ -77,20 +124,28 @@ async function typeIn(selector, text) {
 }
 await send('Runtime.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false, screenWidth: 1440, screenHeight: 900 });
-await navigate('http://127.0.0.1:3012/');
+await navigate(previewUrl);
 await capture('after-desktop-1440x900.png');
 check('Desktop viewport has no horizontal overflow', await evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth'), await evaluate('`${document.documentElement.clientWidth}/${document.documentElement.scrollWidth}`'));
 check('Official logo image loaded', await evaluate('[...document.querySelectorAll(".home-brand img")].every((image)=>image.complete&&image.naturalWidth>0)'));
 check('Homepage sections are in reference order', await evaluate(`(()=>{const ids=['home-title','home-search','categories','providers','how-it-works'];const tops=ids.map(id=>document.getElementById(id).getBoundingClientRect().top);return tops.every((top,index)=>index===0||tops[index-1]<top)})()`));
 check('All navigation/footer links have usable destinations', await evaluate('[...document.querySelectorAll("a")].length>0&&[...document.querySelectorAll("a")].every((link)=>Boolean(link.getAttribute("href")))'));
+check('How-it-works content and all three steps are present', await evaluate('document.querySelectorAll("#how-it-works .home-steps > li").length===3&&Boolean(document.querySelector("#how-it-works h2"))'));
+check('Footer has all reference navigation groups', await evaluate('document.querySelectorAll(".home-footer .home-footer-col").length===3&&document.querySelectorAll(".home-footer a[href]").length>=8'));
+await captureSection('#how-it-works','how-it-works-1440x900.png');
+await captureSection('.home-footer','footer-1440x900.png','end');
+await captureElement('#how-it-works','how-it-works-section.png');
+await captureElement('.home-footer','footer-section.png');
+check('Dedicated how-it-works and footer screenshot evidence was captured', capturedScreenshots.includes('how-it-works-section.png') && capturedScreenshots.includes('footer-section.png'));
+await evaluate('window.scrollTo(0,0)');
 for (const [id, name] of [['doctor','پزشک'],['center','مرکز درمانی'],['service','خدمات و آزمایش‌ها']]) {
   await click(`#search-tab-${id}`);
   check(`Search tab ${name} selects`, await evaluate(`document.querySelector("#search-tab-${id}").getAttribute("aria-selected")==="true"`));
 }
-await evaluate('document.querySelector("#home-search-input").focus()');
-await sleep(100);
+await evaluate('(()=>{const input=document.querySelector("#home-search-input");input.value="";input.dispatchEvent(new Event("input",{bubbles:true}));input.focus()})()');
+await sleep(600);
 await capture('search-autocomplete-default.png');
-check('Default autocomplete suggestions appear', await evaluate('Boolean(document.querySelector("[role=listbox]"))'));
+check('Default autocomplete suggestions appear', await evaluate('Boolean(document.querySelector("[role=listbox]")&&document.querySelectorAll("[role=listbox] [role=option]").length===4&&document.querySelector("#home-search-input").getAttribute("aria-expanded")==="true")'));
 await typeIn('#home-search-input','MRI');
 await capture('search-autocomplete-typed.png');
 check('Typed autocomplete suggestion appears', (await evaluate('document.querySelectorAll("[role=option]").length')) > 0);
@@ -105,11 +160,13 @@ check('Specialty and city dropdowns accept selections', await evaluate('[...docu
 await click('.home-clear-query');
 check('Clear-query control clears the field', await evaluate('document.querySelector("#home-search-input").value===""'));
 await typeIn('#home-search-input','MRI');
+await evaluate('window.__hamiOriginalSetTimeout=window.setTimeout;window.setTimeout=function(callback,delay,...args){return window.__hamiOriginalSetTimeout(callback,delay===650?3000:delay,...args)}');
 await click('.home-search-submit');
-await sleep(100);
+for(let index=0;index<20;index++){if(await evaluate('document.querySelector(".home-search-submit").disabled'))break;await sleep(10)}
 await capture('search-loading.png');
 check('Search loading state renders and disables submit', await evaluate('document.querySelector(".home-search-feedback").textContent.includes("در حال جستجو")&&document.querySelector(".home-search-submit").disabled'));
-await sleep(700);
+await evaluate('window.setTimeout=window.__hamiOriginalSetTimeout;delete window.__hamiOriginalSetTimeout');
+await sleep(3100);
 await capture('search-results.png');
 check('Search results state is explicitly disclosed as demo', await evaluate('document.querySelector(".home-search-feedback").textContent.includes("نتایج جستجوی نمایشی")'));
 await typeIn('#home-search-input','zzz-no-result');
@@ -142,16 +199,18 @@ for (let index = 0; index < linkInventory.length; index++) {
 }
 await evaluate('document.removeEventListener("click",window.__homepageLinkInterceptor,true)');
 for (const route of ['/providers','/support','/plans']) {
-  await navigate(`http://127.0.0.1:3011${route}`);
+  await navigate(new URL(route, previewUrl).href);
   const actual = await evaluate('location.pathname');
   const guarded = ['/providers','/support','/plans'].includes(route) && actual === '/login';
   check(`Route behavior: ${route}`, actual === route || guarded, guarded ? 'auth-gated redirect to /login; not publicly accessible' : actual);
 }
 
 await setViewport(390,844);
-await navigate('http://127.0.0.1:3012/');
+await navigate(previewUrl);
 await capture('after-mobile-390x844.png');
 check('390px mobile viewport has no horizontal overflow', await evaluate('document.documentElement.scrollWidth<=document.documentElement.clientWidth'), await evaluate('`${document.documentElement.clientWidth}/${document.documentElement.scrollWidth}`'));
+check('Mobile provider cards match the reference horizontal swipe row', await evaluate('(()=>{const grid=document.querySelector(".home-provider-grid");const style=getComputedStyle(grid);return style.gridAutoFlow.includes("column")&&grid.scrollWidth>grid.clientWidth&&style.scrollSnapType!=="none"})()'));
+await captureSection('.home-providers','providers-mobile-390x844.png');
 const mobileMenuAvailable = await evaluate('Boolean(document.querySelector(".home-menu-button"))');
 check('Mobile menu control is available at 390px', mobileMenuAvailable);
 if (mobileMenuAvailable) await evaluate('(()=>{const button=document.querySelector(".home-menu-button");button.focus();button.click()})()');
@@ -178,13 +237,22 @@ check('Escape closes drawer', await evaluate('!document.querySelector(".home-mob
 await click('.home-menu-button');
 await click('.home-drawer-backdrop');
 check('Backdrop click closes drawer', await evaluate('!document.querySelector(".home-mobile-drawer")'));
-await navigate('http://127.0.0.1:3011/login');
-await typeIn('#phone','09120000000');
-await typeIn('#password','local-demo-invalid');
+await navigate(new URL('/login', previewUrl).href);
+check('Login route uses the shared branded authentication shell', await evaluate('Boolean(document.querySelector(".auth-experience .auth-stage .auth-panel"))&&Boolean(document.querySelector(".auth-visual"))'));
+check('Login page stylesheet is loaded before visual capture', await evaluate('[...document.styleSheets].some((sheet)=>sheet.href?.includes("/_next/static/css/"))&&getComputedStyle(document.querySelector(".auth-stage")).display==="grid"'));
+await send('Fetch.enable',{patterns:[{urlPattern:'*api/v1/auth/login/password*',requestStage:'Request'}]});
+mockLoginFailureEnabled = true;
+await typeIn('#phone','00000000000');
+await typeIn('#password','demo-only-not-a-credential');
 await click('form[aria-label="ورود"] button[type=submit]');
-for(let index=0;index<30;index++){if(await evaluate('Boolean(document.querySelector("[role=status]")?.textContent?.trim())'))break;await sleep(150)}
+for(let index=0;index<30;index++){if(await evaluate('Boolean(document.querySelector(".auth-feedback")?.textContent?.trim())'))break;await sleep(150)}
+mockLoginFailureEnabled = false;
+await send('Fetch.disable');
+await evaluate('document.activeElement?.blur()');
 await capture('login-error-390x844.png');
-check('Login error state is visible using local-only demo data', await evaluate('Boolean(document.querySelector("[role=status]")?.textContent?.trim())'));
+check('Login error state is visible and announced assertively', await evaluate('Boolean(document.querySelector(".auth-feedback--error")?.textContent?.trim())&&document.querySelector(".auth-feedback--error")?.getAttribute("role")==="alert"'));
+check('Login error screenshot uses the explicit local AUTH_FAILED fixture', mockLoginFailureHit);
+check('Login evidence uses only an obviously synthetic phone and password', await evaluate('document.querySelector("#phone").value==="00000000000"&&document.querySelector("#password").value==="demo-only-not-a-credential"'));
 check('No unexpected application console/runtime errors', errors.length===0, errors.join(' | '));
 const report=checks.map((item)=>`${item.pass?'PASS':'FAIL'} | ${item.name}${item.details?` | ${item.details}`:''}`).join('\n');
 await writeFile(new URL('INTERACTION-CHECKLIST.txt',output),report+'\n','utf8');

@@ -2,6 +2,9 @@ PASS | Desktop viewport has no horizontal overflow | 1425/1425
 PASS | Official logo image loaded
 PASS | Homepage sections are in reference order
 PASS | All navigation/footer links have usable destinations
+PASS | How-it-works content and all three steps are present
+PASS | Footer has all reference navigation groups
+PASS | Dedicated how-it-works and footer screenshot evidence was captured
 PASS | Search tab پزشک selects
 PASS | Search tab مرکز درمانی selects
 PASS | Search tab خدمات و آزمایش‌ها selects
@@ -61,6 +64,7 @@ PASS | Route behavior: /providers | auth-gated redirect to /login; not publicly 
 PASS | Route behavior: /support | auth-gated redirect to /login; not publicly accessible
 PASS | Route behavior: /plans | auth-gated redirect to /login; not publicly accessible
 PASS | 390px mobile viewport has no horizontal overflow | 390/390
+PASS | Mobile provider cards match the reference horizontal swipe row
 PASS | Mobile menu control is available at 390px
 PASS | Drawer receives initial keyboard focus
 PASS | Drawer is right-anchored and prevents background scrolling | {"right":"0px","position":"fixed","bodyOverflow":"hidden","inlineOverflow":"hidden","rectRight":390}
@@ -71,5 +75,9 @@ PASS | Close icon closes drawer
 PASS | Closing the drawer restores focus to the menu button
 PASS | Escape closes drawer
 PASS | Backdrop click closes drawer
-PASS | Login error state is visible using local-only demo data
+PASS | Login route uses the shared branded authentication shell
+PASS | Login page stylesheet is loaded before visual capture
+PASS | Login error state is visible and announced assertively
+PASS | Login error screenshot uses the explicit local AUTH_FAILED fixture
+PASS | Login evidence uses only an obviously synthetic phone and password
 PASS | No unexpected application console/runtime errors

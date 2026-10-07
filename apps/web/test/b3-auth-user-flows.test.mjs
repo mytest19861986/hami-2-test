@@ -18,6 +18,22 @@ test('B3 auth flows use only verified auth endpoints', async () => {
   assert.match(content, /confirm/);
 });
 
+test('authentication pages share the branded shell and expose login failures assertively', async () => {
+  const shell = await source('components/auth-page-shell.jsx');
+  const form = await source('components/auth-form.jsx');
+  const styles = await source('styles.css');
+  const api = await source('lib/api-client.js');
+  assert.match(shell, /auth-stage/);
+  assert.match(shell, /HamiBrand/);
+  assert.match(await source('pages/login.jsx'), /AuthPageShell/);
+  assert.match(await source('pages/register.jsx'), /AuthPageShell/);
+  assert.match(form, /role=\{messageKind === 'error' \? 'alert' : 'status'\}/);
+  assert.match(form, /autoComplete=\{mode === 'register' \? 'new-password' : 'current-password'\}/);
+  assert.match(styles, /\.auth-feedback--error/);
+  assert.match(styles, /\.auth-submit[\s\S]*?background: var\(--auth-orange\)/);
+  assert.match(api, /AUTH_FAILED: 'شماره همراه یا رمز عبور صحیح نیست\.'/);
+});
+
 test('B3 API client maps errors and bounds refresh retry', async () => {
   const content = await source('lib/api-client.js');
   for (const status of ['400', '401', '403', '409', '429', 'NETWORK_ERROR']) assert.match(content, new RegExp(status));

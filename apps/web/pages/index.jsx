@@ -1,5 +1,6 @@
 import Head from 'next/head';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { HamiBrand as Brand } from '../components/hami-brand';
 
 const searchTabs = [
   { id: 'doctor', label: 'پزشک', icon: 'doctor', placeholder: 'نام پزشک یا نوع خدمت را جستجو کنید' },
@@ -60,13 +61,6 @@ function Icon({ name, size = 22, className = '' }) {
     star: <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" />,
   };
   return <svg className={className} width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...common}>{paths[name] || paths.spark}</svg>;
-}
-
-function Brand({ compact = false }) {
-  return <a className={`home-brand${compact ? ' home-brand--compact' : ''}`} href="/" aria-label="حامی‌کارت، صفحه اصلی">
-    <img src="/hami-card-logo.png" alt="" width="48" height="48" />
-    <span><strong>حامی‌کارت</strong><small>سامانه تخفیف درمانی</small></span>
-  </a>;
 }
 
 function ProviderCard({ provider }) {

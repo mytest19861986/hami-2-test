@@ -1,3 +1,8 @@
-import Link from 'next/link';
+import { AuthPageShell } from '../components/auth-page-shell';
 import { AuthForm } from '../components/auth-form';
-export default function Login() { return <main dir="rtl" lang="fa"><h1>ورود به حمایت کارت</h1><AuthForm /><p><Link href="/register">ثبت‌نام</Link></p></main>; }
+export default function Login() {
+  const description = 'برای ادامه، شماره همراه و روش ورود را انتخاب کنید.';
+  return <AuthPageShell title="خوش آمدید" description={description}>
+    <AuthForm />
+  </AuthPageShell>;
+}
