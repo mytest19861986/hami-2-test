@@ -28,6 +28,28 @@ test('demo content is disclosed and does not invent provider metrics or discount
   assert.doesNotMatch(source, /۵۰۰۰\s*\+|۵۰۰\s*\+|٪\s*تخفیف/);
 });
 
+test('hero MRI promo card follows the reference artwork and price hierarchy without demo badges', () => {
+  for (const text of ['HAMICARD', 'جامعه تخفیف درمان', 'حامی‌کارت', 'عضویت سامانه تخفیف درمان', 'سامانه تخفیف درمان', 'MRI کمر', 'در مرکز تصویربرداری پارس', 'هزینه عادی', '۵,۲۰۰,۰۰۰', 'با حامی‌کارت', '۲,۹۰۰,۰۰۰', 'صرفه‌جویی شما', '۲,۳۰۰,۰۰۰']) {
+    assert.ok(source.includes(text), `missing promo card copy: ${text}`);
+  }
+  assert.match(source, /اطلاعات نمونه این صفحه صرفاً نمایشی است/);
+  assert.match(source, /home-promo-backdrop[\s\S]*src="\/home-promo-clinic-bg\.webp"[\s\S]*home-card-brand[\s\S]*HAMICARD[\s\S]*home-demo-card-copy[\s\S]*home-promo-details/);
+  assert.match(source, /home-card-chip">\+H/);
+  assert.match(source, /home-demo-card-copy" dir="ltr"/);
+  assert.match(source, /home-demo-card-bottom" dir="ltr"><span className="home-card-bars"/);
+  assert.doesNotMatch(source, /home-promo-label|home-promo-disclaimer|قیمت‌ها صرفاً نمونه نمایشی‌اند/);
+  assert.match(styles, /\.home-promo-panel\s*\{[^}]*aspect-ratio:\s*2\.3\s*\/\s*1/s);
+  assert.match(styles, /\.home-promo-image \.home-demo-card\s*\{[^}]*width:\s*min\(78%,\s*250px\)[^}]*min-height:\s*136px[^}]*rotate\(-8deg\)[^}]*perspective/s);
+  assert.match(styles, /\.home-promo-backdrop::before\s*\{[^}]*radial-gradient/s);
+  assert.match(styles, /\.home-promo-backdrop img\s*\{[^}]*width:\s*100%[^}]*blur\(3\.5px\)/s);
+  assert.match(styles, /\.home-promo-price-row--old del\s*\{[^}]*text-decoration-thickness/s);
+  assert.match(styles, /\.home-promo-details\s*\{[^}]*direction:\s*rtl/s);
+  assert.match(styles, /\.home-savings-panel\s*\{[^}]*min-height:\s*62px[^}]*background:\s*rgb\(157 233 196 \/ 94%\)/s);
+  assert.match(source, /home-savings-panel" dir="ltr"[\s\S]*Icon name="coins"/);
+  assert.match(styles, /@media\s*\(max-width:\s*760px\)[\s\S]*\.home-promo-panel\s*\{[^}]*aspect-ratio:\s*auto/s);
+  assert.match(styles, /\.home-promo-image \.home-demo-card\s*\{[^}]*width:\s*min\(78%,\s*210px\)[^}]*min-height:\s*108px/s);
+});
+
 test('mobile navigation is a labelled dialog and offers an explicit close control', () => {
   assert.match(source, /role="dialog" aria-modal="true" aria-label="منوی اصلی"/);
   assert.match(source, /aria-label="بستن منو"/);

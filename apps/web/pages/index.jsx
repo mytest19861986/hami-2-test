@@ -47,6 +47,7 @@ function Icon({ name, size = 22, className = '' }) {
     menu: <><path d="M4 7h16M4 12h16M4 17h16" /></>,
     close: <><path d="m6 6 12 12M18 6 6 18" /></>,
     shield: <><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z" /><path d="m9 12 2 2 4-4" /></>,
+    coins: <><ellipse cx="8" cy="7" rx="5" ry="2.5" /><path d="M3 7v8c0 1.4 2.2 2.5 5 2.5 1 0 1.9-.1 2.7-.4M3 11c0 1.4 2.2 2.5 5 2.5 1 0 1.9-.1 2.7-.4M13 11.5c-2.8 0-5 1.1-5 2.5v4c0 1.4 2.2 2.5 5 2.5s5-1.1 5-2.5v-4c0-1.4-2.2-2.5-5-2.5Z" /><path d="M8 14c0 1.4 2.2 2.5 5 2.5s5-1.1 5-2.5" /></>,
     percent: <><path d="M19 5 5 19" /><circle cx="6.5" cy="6.5" r="2.5" /><circle cx="17.5" cy="17.5" r="2.5" /></>,
     users: <><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="10" cy="7" r="4" /><path d="M20 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8" /></>,
     headset: <><path d="M3 13v-2a9 9 0 0 1 18 0v2" /><path d="M3 13h4v7H5a2 2 0 0 1-2-2v-5Zm18 0h-4v7h2a2 2 0 0 0 2-2v-5ZM17 20a5 5 0 0 1-5 2h-1" /></>,
@@ -208,14 +209,21 @@ export default function Home() {
           <div className="home-hero-art" aria-label="پیش‌نمایش گرافیکی حامی‌کارت">
             <div className="home-art-orbit home-art-orbit--one" /><div className="home-art-orbit home-art-orbit--two" />
             <div className="home-promo-panel">
-              <div className="home-promo-image"><div className="home-medical-illustration"><span className="home-medical-plus">+</span><span className="home-illustration-cross">✚</span><div className="home-illustration-ring" /></div>
+              <div className="home-promo-backdrop" aria-hidden="true"><img src="/home-promo-clinic-bg.webp" alt="" /></div>
+              <div className="home-promo-image">
                 <div className="home-demo-card">
-                  <div className="home-demo-card-top"><Brand compact /><span className="home-card-chip">H+</span></div>
-                  <p className="home-demo-card-kicker">کارت خدمات درمانی</p><strong>حامی‌کارت</strong>
-                  <div className="home-demo-card-bottom"><span>نمونه نمایشی</span><span className="home-card-bars"><i /><i /><i /><i /></span></div>
+                  <div className="home-demo-card-top"><div className="home-card-brand"><strong>HAMICARD</strong><small>جامعه تخفیف درمان</small><i /></div><span className="home-card-chip">+H</span></div>
+                  <div className="home-demo-card-copy" dir="ltr"><strong>حامی‌کارت</strong><span>عضویت سامانه تخفیف درمان</span></div>
+                  <div className="home-demo-card-bottom" dir="ltr"><span className="home-card-bars" aria-hidden="true"><i /><i /><i /><i /></span><span>سامانه تخفیف درمان</span></div>
                 </div>
               </div>
-              <div className="home-promo-details"><span className="home-promo-label">نمونه خدمت</span><h2>MRI کمری</h2><p>خدمت تصویربرداری</p><div className="home-promo-rule" /><div className="home-savings-panel"><Icon name="percent" size={22} /><span><small>جزئیات مزیت</small><strong>وابسته به مرکز درمانی</strong></span></div></div>
+              <div className="home-promo-details">
+                <div className="home-promo-heading"><h2>MRI کمر</h2><p>در مرکز تصویربرداری پارس</p></div>
+                <div className="home-promo-rule" />
+                <div className="home-promo-price-row home-promo-price-row--old"><span>هزینه عادی</span><strong><del>۵,۲۰۰,۰۰۰</del><small>تومان</small></strong></div>
+                <div className="home-promo-price-row home-promo-price-row--card"><span>با حامی‌کارت</span><strong>۲,۹۰۰,۰۰۰ <small>تومان</small></strong></div>
+                <div className="home-savings-panel" dir="ltr"><Icon name="coins" size={31} /><span dir="rtl"><small>صرفه‌جویی شما</small><strong>۲,۳۰۰,۰۰۰ <small>تومان</small></strong></span></div>
+              </div>
             </div>
           </div>
         </div>
